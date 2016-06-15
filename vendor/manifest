@@ -15,6 +15,13 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/golang/protobuf/proto",
+			"repository": "https://github.com/golang/protobuf",
+			"revision": "0c1f6d65b5a189c2250d10e71a5506f06f9fa0a0",
+			"branch": "master",
+			"path": "/proto"
+		},
+		{
 			"importpath": "github.com/gorilla/context",
 			"repository": "https://github.com/gorilla/context",
 			"revision": "aed02d124ae4a0e94fea4541c8effd05bf0c8296",
@@ -46,6 +53,19 @@
 			"revision": "e4775119bd79944a15a741ac4be61e43509a70d9",
 			"branch": "master",
 			"path": "/unicode/norm"
+		},
+		{
+			"importpath": "google.golang.org/appengine",
+			"repository": "https://github.com/golang/appengine",
+			"revision": "7f59a8c76b8594d06044bfe0bcbe475cb2020482",
+			"branch": "master"
+		},
+		{
+			"importpath": "google.golang.org/appengine/log",
+			"repository": "https://github.com/golang/appengine",
+			"revision": "7f59a8c76b8594d06044bfe0bcbe475cb2020482",
+			"branch": "master",
+			"path": "/log"
 		}
 	]
 }
