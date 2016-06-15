@@ -1,0 +1,51 @@
+{
+	"version": 0,
+	"dependencies": [
+		{
+			"importpath": "github.com/continusec/go-client/continusec",
+			"repository": "https://github.com/continusec/go-client",
+			"revision": "9972d623fca6c472f843ad936f976ae1c57fcb52",
+			"branch": "master",
+			"path": "/continusec"
+		},
+		{
+			"importpath": "github.com/continusec/objecthash",
+			"repository": "https://github.com/continusec/objecthash",
+			"revision": "c6dc9d39442be86737642bc23a6fd50fc5e5b4e1",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/context",
+			"repository": "https://github.com/gorilla/context",
+			"revision": "aed02d124ae4a0e94fea4541c8effd05bf0c8296",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/gorilla/mux",
+			"repository": "https://github.com/gorilla/mux",
+			"revision": "9fa818a44c2bf1396a17f9d5a3c0f6dd39d2ff8e",
+			"branch": "master"
+		},
+		{
+			"importpath": "golang.org/x/net/context",
+			"repository": "https://go.googlesource.com/net",
+			"revision": "3f122ce3dbbe488b7e6a8bdb26f41edec852a40b",
+			"branch": "master",
+			"path": "/context"
+		},
+		{
+			"importpath": "golang.org/x/text/transform",
+			"repository": "https://go.googlesource.com/text",
+			"revision": "e4775119bd79944a15a741ac4be61e43509a70d9",
+			"branch": "master",
+			"path": "/transform"
+		},
+		{
+			"importpath": "golang.org/x/text/unicode/norm",
+			"repository": "https://go.googlesource.com/text",
+			"revision": "e4775119bd79944a15a741ac4be61e43509a70d9",
+			"branch": "master",
+			"path": "/unicode/norm"
+		}
+	]
+}
