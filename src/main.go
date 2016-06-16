@@ -231,7 +231,7 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 	vmap := getMapObject(ctx)
 
 	// Get the current value - deliberate pick JSON Entry Factory since we want to return raw
-	curVal, err := vmap.Get(vufResult, ts, continusec.JsonEntryFactory)
+	curVal, err := vmap.Get(GetKeyForVUF(vufResult), ts, continusec.JsonEntryFactory)
 	if err != nil {
 		handleError(err, r, w)
 		return
@@ -261,6 +261,11 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 		TreeSize:       curVal.TreeSize,
 		PublicKeyValue: &pkd,
 	})
+}
+
+func GetKeyForVUF(data []byte) []byte {
+	rv := sha256.Sum256(data)
+	return rv[:]
 }
 
 func ApplyVUF(data []byte) ([]byte, error) {
