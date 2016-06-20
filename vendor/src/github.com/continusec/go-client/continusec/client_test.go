@@ -30,7 +30,7 @@ import (
 func TestStuff(t *testing.T) {
 	go runMockServer(":8080", &proxyAndRecordHandler{
 		Host:          "https://api.continusec.com",
-		InHeaders:     []string{"Authorization"},
+		InHeaders:     []string{"Authorization", "X-Previous-LeafHash"},
 		OutHeaders:    []string{"Content-Type", "X-Verified-TreeSize", "X-Verified-Proof"},
 		Dir:           "testdata",
 		FailOnMissing: true,
@@ -538,6 +538,13 @@ func TestStuff(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = vmap.VerifiedGet([]byte("xredjson"), ms3, RedactedJsonEntryFactory)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client = NewClient("7981306761429961588", "testupdate").WithBaseURL("http://localhost:8080")
+	vmap = client.VerifiableMap("loadtestmap2")
+	_, err = vmap.Update([]byte("fooyo"), &RawDataEntry{RawBytes: []byte("bar")}, &RawDataEntry{})
 	if err != nil {
 		t.Fatal(err)
 	}

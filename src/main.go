@@ -64,8 +64,16 @@ fiS1P7W7Y4r1KN0V8r3NvJ0Gwn5XfAwDPhY0hTyd1y/6zgVizTf2xlr1XAiFXjif
 )
 
 type PublicKeyData struct {
-	Sequence     int    `json:"sequence"`
+    // Sequence number, starting from 0, of different values for this key
+	Sequence     int64    `json:"sequence"`
+	
+	// PriorTreeSize is any prior tree size that had the= value this key for Sequence - 1.
+	PriorTreeSize int64  `json:"priorTreeSize"`
+	
+	// The plain text email address for which this key is valid
 	Email        string `json:"email"`
+	
+    // The public key data held for this key.
 	PGPPublicKey []byte `json:"pgpPublicKey"`
 }
 
@@ -111,10 +119,17 @@ func handleError(err error, r *http.Request, w http.ResponseWriter) {
 	}
 }
 
+const (
+    ContinusecAccount = "606281927392511840"
+    ContinusecSecretKey = "75cc2c8b86e96d1574c209d2ec1d3aa418e2ffd19bcc285e8d67111a4048e991"
+    ContinusecPublicKey = "4ac946464f5fa0b150fbf8f99c830302809cc9c4e84ebc1548e2c5ab992d5e28"
+    ContinusecMap = "keys"
+)
+
 func getMapObject(ctx context.Context) *continusec.VerifiableMap {
-	return continusec.NewClient("606281927392511840",
-		"75cc2c8b86e96d1574c209d2ec1d3aa418e2ffd19bcc285e8d67111a4048e991").WithHttpClient(
-		urlfetch.Client(ctx)).VerifiableMap("keys")
+	return continusec.NewClient(ContinusecAccount,
+		ContinusecSecretKey).WithHttpClient(
+		urlfetch.Client(ctx)).VerifiableMap(ContinusecMap)
 }
 
 var EmptyLeafHash = sha256.Sum256([]byte{0})
@@ -142,7 +157,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	vmap := getMapObject(ctx)
 
 	// Next sequence
-	nextSequence := 0 // unless advised otherwise
+	nextSequence := int64(0) // unless advised otherwise
 
 	// Get the current value so that we can pick the next sequence
 	curVal, err := vmap.Get(vufResult, continusec.Head, continusec.RedactedJsonEntryFactory)
@@ -181,14 +196,15 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		Sequence:     nextSequence,
 		Email:        username,
 		PGPPublicKey: body,
+		PriorTreeSize: curVal.TreeSize,
 	})
 	if err != nil {
 		handleError(err, r, w)
 		return
 	}
 
-	// Set the thing.
-	aer, err := vmap.Set(vufResult, &continusec.RedactableJsonEntry{JsonBytes: jb})
+	// Update the thing - will only apply if no-one else modifies.
+	aer, err := vmap.Update(GetKeyForVUF(vufResult), &continusec.RedactableJsonEntry{JsonBytes: jb}, curVal.Value)
 	if err != nil {
 		handleError(err, r, w)
 		return
@@ -198,7 +214,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(200)
 
-	json.NewEncoder(w).Encode(&AddEntryResult{MutationEntryLeafHash: aer.EntryLeafHash})
+	json.NewEncoder(w).Encode(aer)
 }
 
 func getHeadKeyHandler(w http.ResponseWriter, r *http.Request) {
@@ -277,12 +293,53 @@ func ApplyVUF(data []byte) ([]byte, error) {
 	return sig, nil
 }
 
+func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
+	ctx := appengine.NewContext(r)
+
+    req, err := http.NewRequest("GET", "https://api.continusec.com/v1/account/" + ContinusecAccount + "/map/" + ContinusecMap + "/" + r.URL.Path[len(WrappedOp):], nil)
+    log.Debugf(ctx, "%+v", req)
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+    req.Header.Set("Authorization", "Key " + ContinusecPublicKey)
+	
+	resp, err := urlfetch.Client(ctx).Do(req)
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+	
+	contents, err := ioutil.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+	
+	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+	w.WriteHeader(resp.StatusCode)
+	w.Write(contents)
+}
+
+const (
+    WrappedOp = "/v1/wrappedMap/"
+)
+
 func init() {
 	r := mux.NewRouter()
 
+    // Set key
 	r.HandleFunc("/v1/publicKey/{user:.*}", setKeyHandler).Methods("PUT")
+	
+	// Get key for head
 	r.HandleFunc("/v1/publicKey/{user:.*}", getHeadKeyHandler).Methods("GET")
+	
+	// Get key for any value
 	r.HandleFunc("/v1/publicKey/{user:.*}/at/{treesize:[0-9]+}", getSizeKeyHandler).Methods("GET")
-
+	
+	// Handle direct operations on underlying map and log - make sure we used a low privileged key
+	r.HandleFunc(WrappedOp + "{wrappedOp:.*}", handleWrappedOperation).Methods("GET")
+	
 	http.Handle("/", r)
 }

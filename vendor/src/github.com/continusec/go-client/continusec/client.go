@@ -172,7 +172,7 @@ type mapListResponse struct {
 
 // ListLogs returns a list of logs held by the account
 func (self *Client) ListLogs() ([]*LogInfo, error) {
-	contents, _, err := self.makeRequest("GET", "/logs", nil)
+	contents, _, err := self.makeRequest("GET", "/logs", nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (self *Client) ListLogs() ([]*LogInfo, error) {
 
 // ListMaps returns a list of maps held by the account
 func (self *Client) ListMaps() ([]*MapInfo, error) {
-	contents, _, err := self.makeRequest("GET", "/maps", nil)
+	contents, _, err := self.makeRequest("GET", "/maps", nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -202,13 +202,16 @@ func (self *Client) ListMaps() ([]*MapInfo, error) {
 	return resp.Items, nil
 }
 
-func (self *Client) makeRequest(method, path string, data []byte) ([]byte, http.Header, error) {
+func (self *Client) makeRequest(method, path string, data []byte, headers [][2]string) ([]byte, http.Header, error) {
 	url := fmt.Sprintf("%s/v1/account/%s%s", self.baseURL, self.account, path)
 	req, err := http.NewRequest(method, url, bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, err
 	}
 	req.Header.Set("Authorization", "Key "+self.apiKey)
+	for _, h := range headers {
+		req.Header.Set(h[0], h[1])
+	}
 	resp, err := self.httpClient.Do(req)
 	if err != nil {
 		return nil, nil, err

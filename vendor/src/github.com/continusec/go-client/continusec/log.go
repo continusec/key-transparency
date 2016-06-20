@@ -68,7 +68,7 @@ type inclProofResp struct {
 // Create will send an API call to create a new log with the name specified when the
 // VerifiableLog object was instantiated.
 func (self *VerifiableLog) Create() error {
-	_, _, err := self.client.makeRequest("PUT", self.path, nil)
+	_, _, err := self.client.makeRequest("PUT", self.path, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func (self *VerifiableLog) Create() error {
 // Destroy will send an API call to delete this log - this operation removes it permanently,
 // and renders the name unusable again within the same account, so please use with caution.
 func (self *VerifiableLog) Destroy() error {
-	_, _, err := self.client.makeRequest("DELETE", self.path, nil)
+	_, _, err := self.client.makeRequest("DELETE", self.path, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (self *VerifiableLog) Add(e UploadableEntry) (*AddEntryResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	contents, _, err := self.client.makeRequest("POST", self.path+"/entry"+e.Format(), data)
+	contents, _, err := self.client.makeRequest("POST", self.path+"/entry"+e.Format(), data, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (self *VerifiableLog) Add(e UploadableEntry) (*AddEntryResponse, error) {
 // TreeHead returns tree root hash for the log at the given tree size. Specify continusec.Head
 // to receive a root hash for the latest tree size.
 func (self *VerifiableLog) TreeHead(treeSize int64) (*LogTreeHead, error) {
-	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d", treeSize), nil)
+	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d", treeSize), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func (self *VerifiableLog) InclusionProof(treeSize int64, leaf MerkleTreeLeaf) (
 	if err != nil {
 		return nil, err
 	}
-	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/inclusion/h/%s", treeSize, hex.EncodeToString(mtlHash)), nil)
+	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/inclusion/h/%s", treeSize, hex.EncodeToString(mtlHash)), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func (self *VerifiableLog) VerifyInclusion(head *LogTreeHead, leaf MerkleTreeLea
 //
 // Typical clients will instead use VerifyInclusionProof().
 func (self *VerifiableLog) InclusionProofByIndex(treeSize, leafIndex int64) (*LogInclusionProof, error) {
-	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/inclusion/%d", treeSize, leafIndex), nil)
+	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/inclusion/%d", treeSize, leafIndex), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +199,7 @@ func (self *VerifiableLog) InclusionProofByIndex(treeSize, leafIndex int64) (*Lo
 //
 // Most clients instead use VerifyInclusionProof which additionally verifies the returned proof.
 func (self *VerifiableLog) ConsistencyProof(first, second int64) (*LogConsistencyProof, error) {
-	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/consistency/%d", second, first), nil)
+	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/consistency/%d", second, first), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (self *VerifiableLog) VerifyConsistency(a, b *LogTreeHead) error {
 // If the entry was stored using one of the ObjectHash formats, then the data returned by a RawDataEntryFactory,
 // then the object hash itself is returned as the contents. To get the data itself, use JsonEntryFactory.
 func (self *VerifiableLog) Entry(idx int64, factory VerifiableEntryFactory) (VerifiableEntry, error) {
-	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/entry/%d", idx)+factory.Format(), nil)
+	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/entry/%d", idx)+factory.Format(), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +281,7 @@ func (self *VerifiableLog) Entries(ctx context.Context, start, end int64, factor
 				lastToFetch = end
 			}
 
-			contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/entries/%d-%d%s", start, lastToFetch, factory.Format()), nil)
+			contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/entries/%d-%d%s", start, lastToFetch, factory.Format()), nil, nil)
 			if err != nil {
 				return
 			}

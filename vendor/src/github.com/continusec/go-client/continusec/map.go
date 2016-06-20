@@ -62,7 +62,7 @@ func (self *VerifiableMap) TreeHeadLog() *VerifiableLog {
 // Create will send an API call to create a new map with the name specified when the
 // VerifiableMap object was instantiated.
 func (self *VerifiableMap) Create() error {
-	_, _, err := self.client.makeRequest("PUT", self.path, nil)
+	_, _, err := self.client.makeRequest("PUT", self.path, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (self *VerifiableMap) Create() error {
 // Destroy will send an API call to delete this map - this operation removes it permanently,
 // and renders the name unusable again within the same account, so please use with caution.
 func (self *VerifiableMap) Destroy() error {
-	_, _, err := self.client.makeRequest("DELETE", self.path, nil)
+	_, _, err := self.client.makeRequest("DELETE", self.path, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func parseHeadersForProof(headers http.Header) ([][]byte, error) {
 //
 // Clients normally instead call VerifiedGet() with a MapTreeHead returned by VerifiedLatestMapState as this will also perform verification of inclusion.
 func (self *VerifiableMap) Get(key []byte, treeSize int64, factory VerifiableEntryFactory) (*MapInclusionProof, error) {
-	value, headers, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/key/h/%s%s", treeSize, hex.EncodeToString(key), factory.Format()), nil)
+	value, headers, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/key/h/%s%s", treeSize, hex.EncodeToString(key), factory.Format()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (self *VerifiableMap) VerifiedGet(key []byte, mapHead *MapTreeState, factor
 	return proof.Value, nil
 }
 
-// Set will set generate a map mutation to set the given value for the given key.
+// Set will generate a map mutation to set the given value for the given key.
 // While this will return quickly, the change will be reflected asynchronously in the map.
 // Returns an AddEntryResponse which contains the leaf hash for the mutation log entry.
 func (self *VerifiableMap) Set(key []byte, value UploadableEntry) (*AddEntryResponse, error) {
@@ -161,7 +161,35 @@ func (self *VerifiableMap) Set(key []byte, value UploadableEntry) (*AddEntryResp
 	if err != nil {
 		return nil, err
 	}
-	contents, _, err := self.client.makeRequest("PUT", self.path+"/key/h/"+hex.EncodeToString(key)+value.Format(), data)
+	contents, _, err := self.client.makeRequest("PUT", self.path+"/key/h/"+hex.EncodeToString(key)+value.Format(), data, nil)
+	if err != nil {
+		return nil, err
+	}
+	var aer addEntryResponse
+	err = json.Unmarshal(contents, &aer)
+	if err != nil {
+		return nil, err
+	}
+	return &AddEntryResponse{EntryLeafHash: aer.Hash}, nil
+}
+
+// Update will generate a map mutation to set the given value for the given key, conditional on the
+// previous leaf hash being that specified by previousLeaf.
+// While this will return quickly, the change will be reflected asynchronously in the map.
+// Returns an AddEntryResponse which contains the leaf hash for the mutation log entry.
+func (self *VerifiableMap) Update(key []byte, value UploadableEntry, previousLeaf MerkleTreeLeaf) (*AddEntryResponse, error) {
+	data, err := value.DataForUpload()
+	if err != nil {
+		return nil, err
+	}
+	prevLF, err := previousLeaf.LeafHash()
+	if err != nil {
+		return nil, err
+	}
+
+	contents, _, err := self.client.makeRequest("PUT", self.path+"/key/h/"+hex.EncodeToString(key)+value.Format(), data, [][2]string{
+		[2]string{"X-Previous-LeafHash", hex.EncodeToString(prevLF)},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +206,7 @@ func (self *VerifiableMap) Set(key []byte, value UploadableEntry) (*AddEntryResp
 // While this will return quickly, the change will be reflected asynchronously in the map.
 // Returns an AddEntryResponse which contains the leaf hash for the mutation log entry.
 func (self *VerifiableMap) Delete(key []byte) (*AddEntryResponse, error) {
-	contents, _, err := self.client.makeRequest("DELETE", self.path+"/key/h/"+hex.EncodeToString(key), nil)
+	contents, _, err := self.client.makeRequest("DELETE", self.path+"/key/h/"+hex.EncodeToString(key), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +221,7 @@ func (self *VerifiableMap) Delete(key []byte) (*AddEntryResponse, error) {
 // TreeHead returns map root hash for the map at the given tree size. Specify continusec.Head
 // to receive a root hash for the latest tree size.
 func (self *VerifiableMap) TreeHead(treeSize int64) (*MapTreeHead, error) {
-	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d", treeSize), nil)
+	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d", treeSize), nil, nil)
 	if err != nil {
 		return nil, err
 	}
