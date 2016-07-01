@@ -29,7 +29,7 @@ import (
 
 // openssl ecparam -genkey -name prime256v1
 // openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
-// gpg --export adam@continusec.com | curl -X PUT http://localhost:8080/v1/publicKey/adam@continusec.com -D -
+// gpg --export adam@continusec.com | curl -X PUT http://localhost:8080/v1/publicKey/adam@continusec.com -d @-
 var (
 	// Test key, replace later.
 	VUFPrivateKey = readRSAPrivateKeyFromPEM([]byte(`-----BEGIN PRIVATE KEY-----
@@ -151,6 +151,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		handleError(err, r, w)
 		return
 	}
+	log.Debugf(appengine.NewContext(r), "%+v", body)
 
 	// Load up the Map
 	ctx := appengine.NewContext(r)
@@ -159,8 +160,11 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	// Next sequence
 	nextSequence := int64(0) // unless advised otherwise
 
+	// Get key for VUF
+	keyForVuf := GetKeyForVUF(vufResult)
+
 	// Get the current value so that we can pick the next sequence
-	curVal, err := vmap.Get(vufResult, continusec.Head, continusec.RedactedJsonEntryFactory)
+	curVal, err := vmap.Get(keyForVuf, continusec.Head, continusec.RedactedJsonEntryFactory)
 	if err != nil {
 		handleError(err, r, w)
 		return
@@ -204,7 +208,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the thing - will only apply if no-one else modifies.
-	aer, err := vmap.Update(GetKeyForVUF(vufResult), &continusec.RedactableJsonEntry{JsonBytes: jb}, curVal.Value)
+	aer, err := vmap.Update(keyForVuf, &continusec.RedactableJsonEntry{JsonBytes: jb}, curVal.Value)
 	if err != nil {
 		handleError(err, r, w)
 		return
