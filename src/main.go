@@ -27,11 +27,28 @@ import (
 	"github.com/continusec/go-client/continusec"
 )
 
-// openssl ecparam -genkey -name prime256v1
-// openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
-// gpg --export adam@continusec.com | curl -X PUT http://localhost:8080/v1/publicKey/adam@continusec.com -d @-
+/*
+
+Useful commands for testing:
+
+# Generate EC public/private key
+openssl ecparam -genkey -name prime256v1
+
+# Generate RSA public/private key
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
+
+# Export GPG public key, and send it to the API server:
+gpg --export adam@continusec.com | curl -X PUT http://localhost:8080/v1/publicKey/adam@continusec.com -d @-
+gpg --export adam.eijdenberg@gmail.com | curl -X PUT http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com -d @-
+
+
+curl http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com
+
+*/
+
 var (
-	// Test key, replace later.
+	// VUFPrivateKey is used to create a signature, that forms the basis of the
+	// key used to store the public key in the Merkle Tree.
 	VUFPrivateKey = readRSAPrivateKeyFromPEM([]byte(`-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDHpyipt0nlbhAt
 yP8gATh/GoHuvXOr+HPUi+k589BjGRlAfpLk77YEP7MFZT0WTZ8DdIG1uZFyw37a
@@ -63,11 +80,12 @@ fiS1P7W7Y4r1KN0V8r3NvJ0Gwn5XfAwDPhY0hTyd1y/6zgVizTf2xlr1XAiFXjif
 `))
 )
 
+// PublicKeyData is the data stored for a key in the Merkle Tree.
 type PublicKeyData struct {
 	// Sequence number, starting from 0, of different values for this key
 	Sequence int64 `json:"sequence"`
 
-	// PriorTreeSize is any prior tree size that had the= value this key for Sequence - 1.
+	// PriorTreeSize is any prior tree size that had the value this key for Sequence - 1.
 	PriorTreeSize int64 `json:"priorTreeSize"`
 
 	// The plain text email address for which this key is valid
@@ -77,17 +95,34 @@ type PublicKeyData struct {
 	PGPPublicKey []byte `json:"pgpPublicKey"`
 }
 
+// GetEntryResult is the data returned when looking up data for an email address
 type GetEntryResult struct {
-	VUFResult      []byte      `json:"vufResult"`
-	AuditPath      [][]byte    `json:"auditPath"`
-	TreeSize       int64       `json:"treeSize"`
+	// VUFResult is the result of applying the VUF to the email address. In practice this is
+	// the PKCS15 signature of the SHA256 hash of the email address. This must be verified by
+	// the client.
+	VUFResult []byte `json:"vufResult"`
+
+	// AuditPath is the set of Merkle Tree nodes that should be applied along with this
+	// value to produce the Merkle Tree root hash.
+	AuditPath [][]byte `json:"auditPath"`
+
+	// TreeSize is the size of the Merkle Tree for which this inclusion proof is valid.
+	TreeSize int64 `json:"treeSize"`
+
+	// PublicKeyValue is a redacted PublicKeyData field.
 	PublicKeyValue interface{} `json:"publicKeyValue"`
 }
 
+// AddEntryResult is the data returned when setting a key in the map
 type AddEntryResult struct {
+	// MutationEntryLeafHash is the leaf hash of the entry added to the mutation log for the map.
+	// Once this has been verified to be added to the mutation log for the map, then this entry
+	// will be reflected for the map at that size (provided no conflicting operation occurred).
 	MutationEntryLeafHash []byte `json:"mutationEntryLeafHash"`
 }
 
+// readRSAPrivateKeyFromPEM converts a byte array that should be a PEM of type "PRIVATE KEY" to an
+// actual RSA private key.
 func readRSAPrivateKeyFromPEM(b []byte) *rsa.PrivateKey {
 	for len(b) > 0 {
 		var p *pem.Block
@@ -111,6 +146,7 @@ func readRSAPrivateKeyFromPEM(b []byte) *rsa.PrivateKey {
 	return nil
 }
 
+// handleError logs an error and sets an appropriate HTTP status code.
 func handleError(err error, r *http.Request, w http.ResponseWriter) {
 	switch err {
 	default:
@@ -120,20 +156,31 @@ func handleError(err error, r *http.Request, w http.ResponseWriter) {
 }
 
 const (
-	ContinusecAccount   = "606281927392511840"
+	// The Continusec account to use
+	ContinusecAccount = "606281927392511840"
+
+	// The Continusec API key to use for getting/setting values directly on the map
 	ContinusecSecretKey = "75cc2c8b86e96d1574c209d2ec1d3aa418e2ffd19bcc285e8d67111a4048e991"
+
+	// The Continusec API key to use for read-only operations to the mutation/tree-head logs
 	ContinusecPublicKey = "4ac946464f5fa0b150fbf8f99c830302809cc9c4e84ebc1548e2c5ab992d5e28"
-	ContinusecMap       = "keys"
+
+	// The name of the map to use
+	ContinusecMap = "keys"
 )
 
+// Returns a VerifiableMap object ready for manipulations
 func getMapObject(ctx context.Context) *continusec.VerifiableMap {
 	return continusec.NewClient(ContinusecAccount,
 		ContinusecSecretKey).WithHttpClient(
 		urlfetch.Client(ctx)).VerifiableMap(ContinusecMap)
 }
 
+// EmptyLeafHash is the leaf hash of an empty node, pre-calculated since used often.
 var EmptyLeafHash = sha256.Sum256([]byte{0})
 
+// Sets a new public key for a user. Will get the current one, and *should* verify that
+// the new one is signed by the old one, then assign a new sequence number.
 func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the username
 	username := mux.Vars(r)["user"]
@@ -151,7 +198,6 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		handleError(err, r, w)
 		return
 	}
-	log.Debugf(appengine.NewContext(r), "%+v", body)
 
 	// Load up the Map
 	ctx := appengine.NewContext(r)
