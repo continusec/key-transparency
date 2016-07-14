@@ -5,16 +5,22 @@ package main
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"io/ioutil"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/net/context"
 
@@ -25,6 +31,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/objecthash"
 )
 
 /*
@@ -38,46 +45,54 @@ openssl ecparam -genkey -name prime256v1
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
 
 # Export GPG public key, and send it to the API server:
-gpg --export adam@continusec.com | curl -X PUT http://localhost:8080/v1/publicKey/adam@continusec.com -d @-
-gpg --export adam.eijdenberg@gmail.com | curl -X PUT http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com -d @-
+gpg --export adam@continusec.com | curl -i -X PUT http://localhost:8080/v1/publicKey/adam@continusec.com -d @-
+gpg --export adam.eijdenberg@gmail.com | curl -i -X PUT http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com -d @-
 
 
 curl http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com
 
+get token:
+
+curl -X POST http://localhost:8080/v1/sendToken/adam.eijdenberg@gmail.com
+
+
 */
+
+const (
+	// The Continusec account to use
+	ContinusecAccount = "606281927392511840"
+
+	// The Continusec API key to use for getting/setting values directly on the map
+	ContinusecSecretKey = "75cc2c8b86e96d1574c209d2ec1d3aa418e2ffd19bcc285e8d67111a4048e991"
+
+	// The Continusec API key to use for read-only operations to the mutation/tree-head logs
+	ContinusecPublicKey = "4ac946464f5fa0b150fbf8f99c830302809cc9c4e84ebc1548e2c5ab992d5e28"
+
+	// The name of the map to use
+	ContinusecMap = "keys"
+)
 
 var (
 	// VUFPrivateKey is used to create a signature, that forms the basis of the
-	// key used to store the public key in the Merkle Tree.
-	VUFPrivateKey = readRSAPrivateKeyFromPEM([]byte(`-----BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDHpyipt0nlbhAt
-yP8gATh/GoHuvXOr+HPUi+k589BjGRlAfpLk77YEP7MFZT0WTZ8DdIG1uZFyw37a
-e1b2+XY2xgJOahNOm2ZYoAyW9DSdPrl8bt7fz8Ub0QgAYuJLGQlzzhjjs75QKm8b
-KDORxOJviw0WVgREIy2gvSsxKGyZDx7q0Qqlu7qSPwR33geRCOVdPRnJ8hEJ0Zg3
-8NRTlDCCJd71ExdgUkXBjBCfXkX8rkpc8Mlf22FJbnvH6CpUpqM/Z4gu55U3vKiC
-10Bwr4xrXUAbylfXPF5LOCiccmErkhDFsRXGNQykB2FIDrfePWp0O8Gb8wNYLYQ2
-I0JuiUxhAgMBAAECggEAQ7WrErO4efizv/NUorQHRwPkYOUbX40pK0Iv3JmVaKZQ
-bBEBHGc3YYWA3ymQaAn3DaLrgofmjfdDBDGkMqozryvECHftCFGnihLtchxr45As
-M8keCOVbwa1Ie2kNuc5J6F5TDpYcyu85MwqVQrB04sNTsumFFN6hUMwW49sDyXw/
-jNlrsdH2UOx3qpHEVBuBJ0YASr6fQR8gWLXf9lntf3KDh5tkBlVyk5itSKzVidl0
-SsFEAioNg1M2ETzNPnfjy24mRxDLDHinLxC/SdlvnFcI265HLkdDvLLBho58HgEA
-vqhWjDD70uHcjnDHCreB7BVEF575iqxL+Z2lJcwNYQKBgQDzN5pwMZsXIOCtoLQl
-NjnqruNvw+LFFS7O20PMTGz21dCBNdxPWczqG/4CG8gW0ov9kVSJ/iKc2ZcPpfDm
-YngSDsJj4bvkF0ax+M5msMM6Xk465v/ZbRh+dt8XCygdgVyCY9hwaAoCHnNlFFjC
-GQUrXZGy9PJ5uzQhdWAnrVNh/QKBgQDSJWo+dMyrnEaVDIt0Z6ohR9ONlqt1VNSH
-EOhdU/Twctu5c8KdV8CSwpDhR1Kpu1GpGTlYSlD+VW8NipX0mFnlHkk1Sb++Vb8n
-FFgRTk0CWUcTjKkaxvKH5rO2iW9Giew5RI4QdN0ztjvg7H2qcr6EM5V75vvqvMQM
-vLw1Osf/NQKBgD1peNGDdQmt/41X2qTawF0Fs9/wsj3ZT2xj6QaY9ZqN+ovlsa9H
-mXozfzvBEBDTMQ3huFrvlIXOW1pUKDPEAVVt7J+TzAGX7v3ZOSSs1V7TmSU+VrPr
-3BdypHoJEyQAGf/CflBDtOM8FR8cuByqfKeqhLOPLfqWzl70aEcceMVxAoGAdU+P
-rMf1DYPS3xe+rb/E+IkpLuxCUOCHN9MXdCoPHT9xK2jU5pL7HLJiwG/ZVIkOQBCl
-s4ThC+nTccLAjWeTH1U11vqRgIZLjFxOAXMtiDcgd2hZampPL9B42FiGduE9roZ3
-q/YhGeIMMTazvDgL5K8LLry2OscfxmCBzFFBHlUCgYEA6UZIovezWwyvJi/Zxm4r
-4gWwmngYJUhM1BCI51qlGIA2BnGWOwDG3NSPec0a5kNKNIQAhL1+C0arsUKTUlg1
-fiS1P7W7Y4r1KN0V8r3NvJ0Gwn5XfAwDPhY0hTyd1y/6zgVizTf2xlr1XAiFXjif
-1TCo6zBjbVZoMrX3jFXfdGs=
------END PRIVATE KEY-----
-`))
+	// key used to store the public key in the Merkle Tree. We use RSA because this must
+	// be deterministic.
+	VUFPrivateKey = mustReadRSAPrivateKeyFromPEM("keys/vuf.pem")
+
+	// EmailTokenPrivateKey is used to generate a short lived token to submit a key
+	// for a given address. We use EC because it's shorter.
+	EmailTokenPrivateKey = mustReadECPrivateKeyFromPEM("keys/emailtoken.pem")
+)
+
+var (
+	// The signature failed to validate - likely wrong email.
+	ErrInvalidSig = errors.New("ErrInvalidSig")
+
+	// The signature is too old
+	ErrTTLExpired = errors.New("ErrTTLExpired")
+)
+
+const (
+	WrappedOp = "/v1/wrappedMap/"
 )
 
 // PublicKeyData is the data stored for a key in the Merkle Tree.
@@ -121,29 +136,65 @@ type AddEntryResult struct {
 	MutationEntryLeafHash []byte `json:"mutationEntryLeafHash"`
 }
 
-// readRSAPrivateKeyFromPEM converts a byte array that should be a PEM of type "PRIVATE KEY" to an
-// actual RSA private key.
-func readRSAPrivateKeyFromPEM(b []byte) *rsa.PrivateKey {
-	for len(b) > 0 {
-		var p *pem.Block
-		p, b = pem.Decode(b)
-		if p == nil {
-			return nil
-		} else {
-			if strings.HasSuffix(p.Type, "PRIVATE KEY") {
-				key, err := x509.ParsePKCS8PrivateKey(p.Bytes)
-				if err != nil {
-					return nil
-				}
-				rv, ok := key.(*rsa.PrivateKey)
-				if !ok {
-					return nil
-				}
-				return rv
+// TokenData is used to form a basic structure that we take the object hash of before signing.
+type TokenData struct {
+	// Email is the email address this token is valid for
+	Email string `json:"email"`
+
+	// TTL is the time (seconds since epoch UTC) until this token is valid. Normally 5 mins after issue.
+	TTL int64 `json:"ttl"`
+}
+
+// mustReadRSAPrivateKeyFromPEM converts a file path that should be a PEM of type "PRIVATE KEY" to an
+// actual RSA private key. Panics on any error.
+func mustReadRSAPrivateKeyFromPEM(path string) *rsa.PrivateKey {
+	b, err := ioutil.ReadFile(path)
+	if err != nil {
+		panic(4)
+	}
+	var p *pem.Block
+	p, b = pem.Decode(b)
+	if p == nil {
+		panic(4)
+	} else {
+		if strings.HasSuffix(p.Type, "PRIVATE KEY") {
+			key, err := x509.ParsePKCS8PrivateKey(p.Bytes)
+			if err != nil {
+				panic(1)
 			}
+			rv, ok := key.(*rsa.PrivateKey)
+			if !ok {
+				panic(2)
+			}
+			return rv
+		} else {
+			panic(5)
 		}
 	}
-	return nil
+}
+
+// mustReadECPrivateKeyFromPEM converts a file path that should be a PEM of type "EC PRIVATE KEY" to an
+// actual RSA private key. Panics on any error.
+func mustReadECPrivateKeyFromPEM(path string) *ecdsa.PrivateKey {
+	b, err := ioutil.ReadFile(path)
+	if err != nil {
+		panic(4)
+	}
+	var p *pem.Block
+	p, b = pem.Decode(b)
+	if p == nil {
+		panic(4)
+	} else {
+		if strings.HasSuffix(p.Type, "EC PRIVATE KEY") {
+			key, err := x509.ParseECPrivateKey(p.Bytes)
+			if err != nil {
+				panic(1)
+			}
+			return key
+		} else {
+			panic(5)
+		}
+	}
 }
 
 // handleError logs an error and sets an appropriate HTTP status code.
@@ -154,20 +205,6 @@ func handleError(err error, r *http.Request, w http.ResponseWriter) {
 		w.WriteHeader(500)
 	}
 }
-
-const (
-	// The Continusec account to use
-	ContinusecAccount = "606281927392511840"
-
-	// The Continusec API key to use for getting/setting values directly on the map
-	ContinusecSecretKey = "75cc2c8b86e96d1574c209d2ec1d3aa418e2ffd19bcc285e8d67111a4048e991"
-
-	// The Continusec API key to use for read-only operations to the mutation/tree-head logs
-	ContinusecPublicKey = "4ac946464f5fa0b150fbf8f99c830302809cc9c4e84ebc1548e2c5ab992d5e28"
-
-	// The name of the map to use
-	ContinusecMap = "keys"
-)
 
 // Returns a VerifiableMap object ready for manipulations
 func getMapObject(ctx context.Context) *continusec.VerifiableMap {
@@ -181,9 +218,24 @@ var EmptyLeafHash = sha256.Sum256([]byte{0})
 
 // Sets a new public key for a user. Will get the current one, and *should* verify that
 // the new one is signed by the old one, then assign a new sequence number.
+// Requires that the "Authorization" header be set to a value as sent by a previous
+// call to /v1/sendToken/... (which has the effect of weakly verifying control of the
+// email address).
 func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the username
 	username := mux.Vars(r)["user"]
+
+	// Check if we have a valid token
+	token, err := base64.StdEncoding.DecodeString(r.Header.Get("Authorization"))
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+	err = validateToken(username, token)
+	if err != nil { // no good, fail
+		handleError(err, r, w)
+		return
+	}
 
 	// Apply the vuf to the username
 	vufResult, err := ApplyVUF([]byte(username))
@@ -260,17 +312,19 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// And write the results
+	// And write the result, which is the leaf hash of the mutation entry.
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(200)
 
 	json.NewEncoder(w).Encode(aer)
 }
 
+// Get the latest data for a key
 func getHeadKeyHandler(w http.ResponseWriter, r *http.Request) {
 	getKeyHandler(continusec.Head, w, r)
 }
 
+// Get the data for the key for a specific tree size
 func getSizeKeyHandler(w http.ResponseWriter, r *http.Request) {
 	ts, err := strconv.Atoi(mux.Vars(r)["treesize"])
 	if err != nil {
@@ -281,6 +335,7 @@ func getSizeKeyHandler(w http.ResponseWriter, r *http.Request) {
 	getKeyHandler(int64(ts), w, r)
 }
 
+// Private handler to actually get the data for a given tree size
 func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 	// Get the username
 	username := mux.Vars(r)["user"]
@@ -333,11 +388,112 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// A token is a base64 of asn1 form of this.
+type ECDSASignature struct {
+	// R, S are as returned by ecdsa.Sign
+	R, S *big.Int
+
+	// TTL is the time when this token expires. Email is not sent with the token, since
+	// it is presented along with the set request.
+	TTL int64
+}
+
+// Returns nil if valid - token should be base64 decoded already.
+func validateToken(email string, token []byte) error {
+	var sig ECDSASignature
+	_, err := asn1.Unmarshal(token, &sig)
+	if err != nil {
+		return err
+	}
+
+	if time.Now().After(time.Unix(sig.TTL, 0)) {
+		return ErrTTLExpired
+	}
+
+	td := &TokenData{
+		Email: email,
+		TTL:   sig.TTL,
+	}
+
+	b := &bytes.Buffer{}
+	err = json.NewEncoder(b).Encode(td)
+	if err != nil {
+		return err
+	}
+
+	jsonB := b.Bytes()
+	oh, err := objecthash.CommonJSONHash(jsonB)
+	if err != nil {
+		return err
+	}
+
+	if ecdsa.Verify(&EmailTokenPrivateKey.PublicKey, oh, sig.R, sig.S) {
+		return nil
+	} else {
+		return ErrInvalidSig
+	}
+}
+
+// Creates a new token for the email address and specified TTL.
+// Result is to be base64 encoded by caller.
+func makeToken(email string, ttl time.Time) ([]byte, error) {
+	token := &TokenData{
+		Email: email,
+		TTL:   ttl.Unix(),
+	}
+
+	b := &bytes.Buffer{}
+	err := json.NewEncoder(b).Encode(token)
+	if err != nil {
+		return nil, err
+	}
+
+	jsonB := b.Bytes()
+	oh, err := objecthash.CommonJSONHash(jsonB)
+	if err != nil {
+		return nil, err
+	}
+
+	r, s, err := ecdsa.Sign(rand.Reader, EmailTokenPrivateKey, oh)
+	if err != nil {
+		return nil, err
+	}
+
+	sig, err := asn1.Marshal(ECDSASignature{R: r, S: s, TTL: token.TTL})
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
+}
+
+// Handle request to send a new token to a given address.
+// Currently these tokens are valid for 5 mins only.
+func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
+	// Get the username
+	username := mux.Vars(r)["user"]
+
+	token, err := makeToken(username, time.Now().Add(time.Minute*5))
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+
+	// TODO: clearly this needs to be removed, and instead emailed
+	rv := base64.StdEncoding.EncodeToString(token)
+
+	// And write the results
+	w.WriteHeader(200)
+	w.Write([]byte(rv))
+}
+
+// Returns the key in a map for a given VUF
 func GetKeyForVUF(data []byte) []byte {
 	rv := sha256.Sum256(data)
 	return rv[:]
 }
 
+// Calculated the VUF for a plaintext key
 func ApplyVUF(data []byte) ([]byte, error) {
 	hash := sha256.Sum256(data)
 	sig, err := rsa.SignPKCS1v15(rand.Reader, VUFPrivateKey, crypto.SHA256, hash[:])
@@ -376,12 +532,11 @@ func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 	w.Write(contents)
 }
 
-const (
-	WrappedOp = "/v1/wrappedMap/"
-)
-
 func init() {
 	r := mux.NewRouter()
+
+	// Send short-lived token to email specified - used POST since it does stuff on the server and should not be repeated
+	r.HandleFunc("/v1/sendToken/{user:.*}", sendTokenHandler).Methods("POST")
 
 	// Set key
 	r.HandleFunc("/v1/publicKey/{user:.*}", setKeyHandler).Methods("PUT")
