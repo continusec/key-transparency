@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"math/big"
 	"net/http"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/continusec/go-client/continusec"
 	"github.com/continusec/objecthash"
+	sendgrid "github.com/sendgrid/sendgrid-go"
 )
 
 /*
@@ -46,7 +48,8 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
 
 # Export GPG public key, and send it to the API server:
 gpg --export adam@continusec.com | curl -i -X PUT http://localhost:8080/v1/publicKey/adam@continusec.com -d @-
-gpg --export adam.eijdenberg@gmail.com | curl -i -X PUT http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com -d @-
+
+gpg --export adam.eijdenberg@gmail.com | curl -H "Authorization: %s" -i -X PUT http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com -d @-
 
 
 curl http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com
@@ -70,6 +73,32 @@ const (
 
 	// The name of the map to use
 	ContinusecMap = "keys"
+
+	// SendGrid key
+	SendGridEmailSecretKey = "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"
+
+	// From address for sending email token
+	EmailFromAddress = "key-transparency-token@continusec.com"
+
+	// Subject
+	EmailSubject = "Key Transparency Token Request"
+
+	// Message
+	EmailMessage = `Thank you for requesting an authorization token for submitting your key data.
+
+The following token has been generated and is valid for 1 hour:
+%s
+
+Example usage (to export your GPG public key):
+
+gpg --export %s | curl -H "Authorization: %s" -i -X PUT http://localhost:8080/v1/publicKey/%s -d @-
+
+If you didn't make this request, then please ignore this message.
+
+To learn more about Key Transparency, please visit:
+https://www.continusec.com/case-studies/key-transparency
+
+Continusec Support`
 )
 
 var (
@@ -94,6 +123,21 @@ var (
 const (
 	WrappedOp = "/v1/wrappedMap/"
 )
+
+func SendMail(sender string, recipients []string, subject, body string, ctx context.Context) error {
+	sg := sendgrid.NewSendGridClientWithApiKey(SendGridEmailSecretKey)
+	sg.Client = urlfetch.Client(ctx)
+
+	message := sendgrid.NewMail()
+	for _, recip := range recipients {
+		message.AddTo(recip)
+	}
+	message.SetSubject(subject)
+	message.SetText(body)
+	message.SetFrom(sender)
+
+	return sg.Send(message)
+}
 
 // PublicKeyData is the data stored for a key in the Merkle Tree.
 type PublicKeyData struct {
@@ -141,7 +185,7 @@ type TokenData struct {
 	// Email is the email address this token is valid for
 	Email string `json:"email"`
 
-	// TTL is the time (seconds since epoch UTC) until this token is valid. Normally 5 mins after issue.
+	// TTL is the time (seconds since epoch UTC) until this token is valid. Normally 1 hour after issue.
 	TTL int64 `json:"ttl"`
 }
 
@@ -473,18 +517,24 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the username
 	username := mux.Vars(r)["user"]
 
-	token, err := makeToken(username, time.Now().Add(time.Minute*5))
+	token, err := makeToken(username, time.Now().Add(time.Hour))
 	if err != nil {
 		handleError(err, r, w)
 		return
 	}
 
-	// TODO: clearly this needs to be removed, and instead emailed
-	rv := base64.StdEncoding.EncodeToString(token)
+	tb64 := base64.StdEncoding.EncodeToString(token)
+
+	err = SendMail(EmailFromAddress, []string{username}, EmailSubject, fmt.Sprintf(EmailMessage,
+		tb64, username, tb64, username), appengine.NewContext(r))
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
 
 	// And write the results
 	w.WriteHeader(200)
-	w.Write([]byte(rv))
+	w.Write([]byte("Email sent with further instructions."))
 }
 
 // Returns the key in a map for a given VUF

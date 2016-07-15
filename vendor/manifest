@@ -34,6 +34,24 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/sendgrid/rest",
+			"repository": "https://github.com/sendgrid/rest",
+			"revision": "68c6f5a8279e048ee0f591ffc102af6a08ed7767",
+			"branch": "master"
+		},
+		{
+			"importpath": "github.com/sendgrid/sendgrid-go",
+			"repository": "https://github.com/sendgrid/sendgrid-go",
+			"revision": "d88aa4dd8b2a9df3a9693d35d4d0f686b3bcff9a",
+			"branch": "HEAD"
+		},
+		{
+			"importpath": "github.com/sendgrid/smtpapi-go",
+			"repository": "https://github.com/sendgrid/smtpapi-go",
+			"revision": "985dfa1c82edb68392be9b89f25b49968e7d3303",
+			"branch": "master"
+		},
+		{
 			"importpath": "golang.org/x/net/context",
 			"repository": "https://go.googlesource.com/net",
 			"revision": "3f122ce3dbbe488b7e6a8bdb26f41edec852a40b",
