@@ -56,8 +56,7 @@ curl http://localhost:8080/v1/publicKey/adam.eijdenberg@gmail.com
 
 get token:
 
-curl -X POST http://localhost:8080/v1/sendToken/adam.eijdenberg@gmail.com
-
+curl -X POST -d "" https://continusec-key-server.appspot.com/v1/sendToken/adam.eijdenberg@gmail.com
 
 */
 
@@ -72,7 +71,7 @@ const (
 	ContinusecPublicKey = "4ac946464f5fa0b150fbf8f99c830302809cc9c4e84ebc1548e2c5ab992d5e28"
 
 	// The name of the map to use
-	ContinusecMap = "keys"
+	ContinusecMap = "keys2"
 
 	// SendGrid key
 	SendGridEmailSecretKey = "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"
@@ -91,7 +90,7 @@ The following token has been generated and is valid for 1 hour:
 
 Example usage (to export your GPG public key):
 
-gpg --export %s | curl -H "Authorization: %s" -i -X PUT http://localhost:8080/v1/publicKey/%s -d @-
+gpg --export %s | curl -H "Authorization: %s" -i -X PUT https://continusec-key-server.appspot.com/v1/publicKey/%s -d @-
 
 If you didn't make this request, then please ignore this message.
 
