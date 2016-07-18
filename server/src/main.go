@@ -359,7 +359,9 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(200)
 
-	json.NewEncoder(w).Encode(aer)
+	json.NewEncoder(w).Encode(&AddEntryResult{
+		MutationEntryLeafHash: aer.EntryLeafHash,
+	})
 }
 
 // Get the latest data for a key
