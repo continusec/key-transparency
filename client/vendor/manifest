@@ -8,6 +8,19 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/continusec/go-client/continusec",
+			"repository": "https://github.com/continusec/go-client",
+			"revision": "bdeed5a980596258a2f60249d9519b63c795a858",
+			"branch": "master",
+			"path": "/continusec"
+		},
+		{
+			"importpath": "github.com/continusec/objecthash",
+			"repository": "https://github.com/continusec/objecthash",
+			"revision": "c6dc9d39442be86737642bc23a6fd50fc5e5b4e1",
+			"branch": "master"
+		},
+		{
 			"importpath": "github.com/mattn/go-runewidth",
 			"repository": "https://github.com/mattn/go-runewidth",
 			"revision": "d6bea18f789704b5f83375793155289da36a3c7f",
@@ -24,6 +37,27 @@
 			"repository": "https://github.com/urfave/cli",
 			"revision": "11c134509d89c2018675f369955218a180dc7428",
 			"branch": "master"
+		},
+		{
+			"importpath": "golang.org/x/net/context",
+			"repository": "https://go.googlesource.com/net",
+			"revision": "3797cd8864994d713d909eda5e61ede8683fdc12",
+			"branch": "master",
+			"path": "/context"
+		},
+		{
+			"importpath": "golang.org/x/text/transform",
+			"repository": "https://go.googlesource.com/text",
+			"revision": "8552585fc3ce7ff5660cad92f78bda7b4df0c82c",
+			"branch": "master",
+			"path": "/transform"
+		},
+		{
+			"importpath": "golang.org/x/text/unicode/norm",
+			"repository": "https://go.googlesource.com/text",
+			"revision": "8552585fc3ce7ff5660cad92f78bda7b4df0c82c",
+			"branch": "master",
+			"path": "/unicode/norm"
 		},
 		{
 			"importpath": "gopkg.in/yaml.v2",
