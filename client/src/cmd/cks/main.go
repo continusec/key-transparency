@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -332,18 +336,107 @@ func getCurrentHead() (*continusec.MapTreeState, error) {
 	return mapState, nil
 }
 
+var (
+	ErrBadReturnVal = errors.New("ErrBadReturnVal")
+)
+
+// GetEntryResult is the data returned when looking up data for an email address
+type GetEntryResult struct {
+	// VUFResult is the result of applying the VUF to the email address. In practice this is
+	// the PKCS15 signature of the SHA256 hash of the email address. This must be verified by
+	// the client.
+	VUFResult []byte `json:"vufResult"`
+
+	// AuditPath is the set of Merkle Tree nodes that should be applied along with this
+	// value to produce the Merkle Tree root hash.
+	AuditPath [][]byte `json:"auditPath"`
+
+	// TreeSize is the size of the Merkle Tree for which this inclusion proof is valid.
+	TreeSize int64 `json:"treeSize"`
+
+	// PublicKeyValue is a redacted JSON for PublicKeyData field.
+	PublicKeyValue []byte `json:"publicKeyValue"`
+}
+
+// Verify that this result is included in the given map state
+func (ger *GetEntryResult) VerifyInclusion(ms *continusec.MapTreeState) error {
+	x := sha256.Sum256(ger.VUFResult)
+	return (&continusec.MapInclusionProof{
+		TreeSize:  ger.TreeSize,
+		AuditPath: ger.AuditPath,
+		Value:     &continusec.RedactedJsonEntry{RedactedJsonBytes: ger.PublicKeyValue},
+		Key:       x[:],
+	}).Verify(&ms.MapTreeHead)
+}
+
+func doGet(url string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, ErrBadReturnVal
+	}
+
+	contents, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return contents, nil
+}
+
+func getValForEmail(emailAddress string, treeSize int64, c *cli.Context) (*GetEntryResult, error) {
+	url := c.GlobalString("server") + "/v1/publicKey/" + emailAddress + "/at/" + strconv.Itoa(int(treeSize))
+
+	contents, err := doGet(url)
+	if err != nil {
+		return nil, err
+	}
+
+	var ger GetEntryResult
+	err = json.Unmarshal(contents, &ger)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ger, nil
+}
+
 func listUsers(c *cli.Context) error {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Email", "Last updated size"})
 
-	/*ms, err := getCurrentHead()
+	ms, err := getCurrentHead()
 	if err != nil {
 		return cli.NewExitError("error getting current map state from local storage: "+err.Error(), 1)
-	}*/
+	}
 
 	gotOne := func(b *bolt.Bucket, k, v []byte) error {
-		lastSeq := binary.BigEndian.Uint64(v)
+		lastSeq := int64(binary.BigEndian.Uint64(v))
 		email := string(k)
+
+		if ms != nil && lastSeq < ms.TreeSize() && c.Bool("check") {
+			res, err := getValForEmail(email, ms.TreeSize(), c)
+			if err != nil {
+				return err
+			}
+
+			err = res.VerifyInclusion(ms)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("%+v, %+v\n", email, res.VUFResult)
+			err = validateVufResult(email, res.VUFResult)
+			if err != nil {
+				return err
+			}
+
+			lastSeq = res.TreeSize
+		}
 
 		table.Append([]string{
 			email,
@@ -353,9 +446,12 @@ func listUsers(c *cli.Context) error {
 		return nil
 	}
 
-	err := db.Update(func(tx *bolt.Tx) error {
+	err = db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("keys"))
-		b.ForEach(func(k, v []byte) error { return gotOne(b, k, v) })
+		err := b.ForEach(func(k, v []byte) error { return gotOne(b, k, v) })
+		if err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -430,6 +526,64 @@ func unfollowUser(c *cli.Context) error {
 	return nil
 }
 
+func initNewServer(c *cli.Context) error {
+	if c.NArg() != 0 {
+		return cli.NewExitError("No args should be specified", 1)
+	}
+
+	url := c.GlobalString("server") + "/v1/config/vufPublicKey"
+
+	vufBytes, err := doGet(url)
+	if err != nil {
+		return cli.NewExitError("Error fetching VUF public key:"+err.Error(), 1)
+	}
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("mapstate"))
+
+		err = b.Put([]byte("vufKey"), vufBytes)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+	if err != nil {
+		return cli.NewExitError("error storing new state: "+err.Error(), 2)
+	}
+
+	return nil
+}
+
+var (
+	ErrUnexpectedKeyFormat = errors.New("ErrUnexpectedKeyFormat")
+)
+
+func validateVufResult(email string, vufResult []byte) error {
+	var vuf []byte
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("mapstate"))
+		vuf = b.Get([]byte("vufKey"))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	pkey, err := x509.ParsePKIXPublicKey(vuf)
+	if err != nil {
+		return err
+	}
+
+	ppkey, ok := pkey.(*rsa.PublicKey)
+	if !ok {
+		return ErrUnexpectedKeyFormat
+	}
+
+	hashed := sha256.Sum256([]byte(email))
+	return rsa.VerifyPKCS1v15(ppkey, crypto.SHA256, hashed[:], vufResult)
+}
+
 func updateTree(c *cli.Context) error {
 	if c.NArg() != 0 {
 		return cli.NewExitError("No args should be specified", 1)
@@ -470,7 +624,11 @@ func updateTree(c *cli.Context) error {
 	if mapState == nil {
 		fmt.Printf("No previous value stored, consistency check skipped.\n")
 	} else {
-		fmt.Printf("Verified that mutation log is consistent with previous size of %d, and that map hash is logged in consistent tree head log.\n", mapState.TreeSize())
+		if newHead.TreeSize() > mapState.TreeSize() {
+			fmt.Printf("Verified that mutation log is consistent with previous size of %d, and that map hash is logged in consistent tree head log.\n", mapState.TreeSize())
+		} else {
+			fmt.Printf("(same as before)\n")
+		}
 	}
 
 	return nil
@@ -505,6 +663,11 @@ func main() {
 
 	app.Commands = []cli.Command{
 		{
+			Name:   "init",
+			Usage:  "Init new server",
+			Action: initNewServer,
+		},
+		{
 			Name:   "update",
 			Usage:  "Update to latest version of the tree",
 			Action: updateTree,
@@ -519,6 +682,12 @@ func main() {
 			Name:   "list",
 			Usage:  "List state of users we care about",
 			Action: listUsers,
+			Flags: []cli.Flag{
+				cli.BoolFlag{
+					Name:  "check",
+					Usage: "Check for new keys",
+				},
+			},
 		},
 		{
 			Name:      "unfollow",

@@ -106,6 +106,9 @@ var (
 	// be deterministic.
 	VUFPrivateKey = mustReadRSAPrivateKeyFromPEM("keys/vuf.pem")
 
+	// VUFPublicKey is a DER encoded public key ready to serve
+	VUFPublicKey = mustCreateDERPublicKey(mustReadRSAPrivateKeyFromPEM("keys/vuf.pem"))
+
 	// EmailTokenPrivateKey is used to generate a short lived token to submit a key
 	// for a given address. We use EC because it's shorter.
 	EmailTokenPrivateKey = mustReadECPrivateKeyFromPEM("keys/emailtoken.pem")
@@ -167,8 +170,8 @@ type GetEntryResult struct {
 	// TreeSize is the size of the Merkle Tree for which this inclusion proof is valid.
 	TreeSize int64 `json:"treeSize"`
 
-	// PublicKeyValue is a redacted PublicKeyData field.
-	PublicKeyValue interface{} `json:"publicKeyValue"`
+	// PublicKeyValue is a redacted JSON for PublicKeyData field.
+	PublicKeyValue []byte `json:"publicKeyValue"`
 }
 
 // AddEntryResult is the data returned when setting a key in the map
@@ -216,6 +219,14 @@ func mustReadRSAPrivateKeyFromPEM(path string) *rsa.PrivateKey {
 	}
 }
 
+func mustCreateDERPublicKey(private *rsa.PrivateKey) []byte {
+	rv, err := x509.MarshalPKIXPublicKey(&private.PublicKey)
+	if err != nil {
+		panic(err)
+	}
+	return rv
+}
+
 // mustReadECPrivateKeyFromPEM converts a file path that should be a PEM of type "EC PRIVATE KEY" to an
 // actual RSA private key. Panics on any error.
 func mustReadECPrivateKeyFromPEM(path string) *ecdsa.PrivateKey {
@@ -238,6 +249,13 @@ func mustReadECPrivateKeyFromPEM(path string) *ecdsa.PrivateKey {
 			panic(5)
 		}
 	}
+}
+
+func sendVUFPublicKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/binary")
+	w.WriteHeader(200)
+
+	w.Write(VUFPublicKey)
 }
 
 // handleError logs an error and sets an appropriate HTTP status code.
@@ -411,19 +429,10 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := &GetEntryResult{
-		VUFResult: vufResult,
-		AuditPath: curVal.AuditPath,
-		TreeSize:  curVal.TreeSize,
-	}
-
-	if len(jd) > 0 {
-		var pkd interface{}
-		err = json.Unmarshal(jd, &pkd)
-		if err != nil {
-			handleError(err, r, w)
-			return
-		}
-		result.PublicKeyValue = &pkd
+		VUFResult:      vufResult,
+		AuditPath:      curVal.AuditPath,
+		TreeSize:       curVal.TreeSize,
+		PublicKeyValue: jd,
 	}
 
 	// And write the results
@@ -585,6 +594,9 @@ func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 
 func init() {
 	r := mux.NewRouter()
+
+	// Return the public key used for the VUF
+	r.HandleFunc("/v1/config/vufPublicKey", sendVUFPublicKey).Methods("GET")
 
 	// Send short-lived token to email specified - used POST since it does stuff on the server and should not be repeated
 	r.HandleFunc("/v1/sendToken/{user:.*}", sendTokenHandler).Methods("POST")
