@@ -109,6 +109,12 @@ var (
 	// VUFPublicKey is a DER encoded public key ready to serve
 	VUFPublicKey = mustCreateDERPublicKey(mustReadRSAPrivateKeyFromPEM("keys/vuf.pem"))
 
+	// ServerPrivateKey is used to sign all responses
+	ServerPrivateKey = mustReadECPrivateKeyFromPEM("keys/server.pem")
+
+	// ServerPrivateKey is a DER encoded public key ready to serve
+	ServerPublicKey = mustCreateDERPublicKeyFromEC(mustReadECPrivateKeyFromPEM("keys/server.pem"))
+
 	// EmailTokenPrivateKey is used to generate a short lived token to submit a key
 	// for a given address. We use EC because it's shorter.
 	EmailTokenPrivateKey = mustReadECPrivateKeyFromPEM("keys/emailtoken.pem")
@@ -227,6 +233,14 @@ func mustCreateDERPublicKey(private *rsa.PrivateKey) []byte {
 	return rv
 }
 
+func mustCreateDERPublicKeyFromEC(private *ecdsa.PrivateKey) []byte {
+	rv, err := x509.MarshalPKIXPublicKey(&private.PublicKey)
+	if err != nil {
+		panic(err)
+	}
+	return rv
+}
+
 // mustReadECPrivateKeyFromPEM converts a file path that should be a PEM of type "EC PRIVATE KEY" to an
 // actual RSA private key. Panics on any error.
 func mustReadECPrivateKeyFromPEM(path string) *ecdsa.PrivateKey {
@@ -253,9 +267,14 @@ func mustReadECPrivateKeyFromPEM(path string) *ecdsa.PrivateKey {
 
 func sendVUFPublicKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/binary")
-	w.WriteHeader(200)
 
-	w.Write(VUFPublicKey)
+	writeAndSign(VUFPublicKey, w)
+}
+
+func sendServerPublicKey(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/binary")
+
+	writeAndSign(ServerPublicKey, w)
 }
 
 // handleError logs an error and sets an appropriate HTTP status code.
@@ -373,13 +392,20 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// And write the result, which is the leaf hash of the mutation entry.
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(200)
-
-	json.NewEncoder(w).Encode(&AddEntryResult{
+	b := &bytes.Buffer{}
+	err = json.NewEncoder(b).Encode(&AddEntryResult{
 		MutationEntryLeafHash: aer.EntryLeafHash,
 	})
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+
+	// And write the result, which is the leaf hash of the mutation entry.
+	w.Header().Set("Content-Type", "text/plain")
+
+	writeAndSign(b.Bytes(), w)
+
 }
 
 // Get the latest data for a key
@@ -435,18 +461,29 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 		PublicKeyValue: jd,
 	}
 
+	b := &bytes.Buffer{}
+	err = json.NewEncoder(b).Encode(result)
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+
 	// And write the results
 	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(200)
 
-	json.NewEncoder(w).Encode(result)
+	writeAndSign(b.Bytes(), w)
+
 }
 
 // A token is a base64 of asn1 form of this.
 type ECDSASignature struct {
 	// R, S are as returned by ecdsa.Sign
 	R, S *big.Int
+}
 
+// A token is a base64 of asn1 form of this.
+type SignedToken struct {
+	Signature ECDSASignature
 	// TTL is the time when this token expires. Email is not sent with the token, since
 	// it is presented along with the set request.
 	TTL int64
@@ -454,7 +491,7 @@ type ECDSASignature struct {
 
 // Returns nil if valid - token should be base64 decoded already.
 func validateToken(email string, token []byte) error {
-	var sig ECDSASignature
+	var sig SignedToken
 	_, err := asn1.Unmarshal(token, &sig)
 	if err != nil {
 		return err
@@ -481,11 +518,24 @@ func validateToken(email string, token []byte) error {
 		return err
 	}
 
-	if ecdsa.Verify(&EmailTokenPrivateKey.PublicKey, oh, sig.R, sig.S) {
+	if ecdsa.Verify(&EmailTokenPrivateKey.PublicKey, oh, sig.Signature.R, sig.Signature.S) {
 		return nil
 	} else {
 		return ErrInvalidSig
 	}
+}
+
+func ecSign(data []byte, key *ecdsa.PrivateKey) ([]byte, error) {
+	hashed := sha256.Sum256(data)
+	r, s, err := ecdsa.Sign(rand.Reader, key, hashed[:])
+	if err != nil {
+		return nil, err
+	}
+	sig, err := asn1.Marshal(ECDSASignature{R: r, S: s})
+	if err != nil {
+		return nil, err
+	}
+	return sig, nil
 }
 
 // Creates a new token for the email address and specified TTL.
@@ -513,7 +563,7 @@ func makeToken(email string, ttl time.Time) ([]byte, error) {
 		return nil, err
 	}
 
-	sig, err := asn1.Marshal(ECDSASignature{R: r, S: s, TTL: token.TTL})
+	sig, err := asn1.Marshal(SignedToken{Signature: ECDSASignature{R: r, S: s}, TTL: token.TTL})
 	if err != nil {
 		return nil, err
 	}
@@ -544,7 +594,7 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	// And write the results
 	w.WriteHeader(200)
-	w.Write([]byte("Email sent with further instructions."))
+	w.Write([]byte("Email sent with further instructions.\n"))
 }
 
 // Returns the key in a map for a given VUF
@@ -561,6 +611,18 @@ func ApplyVUF(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return sig, nil
+}
+
+func writeAndSign(contents []byte, w http.ResponseWriter) error {
+	sig, err := ecSign(contents, ServerPrivateKey)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("X-Body-Signature", base64.StdEncoding.EncodeToString(sig))
+	_, err = w.Write(contents)
+
+	return err
 }
 
 func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
@@ -588,8 +650,12 @@ func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	w.WriteHeader(resp.StatusCode)
-	w.Write(contents)
+	if resp.StatusCode == 200 {
+		writeAndSign(contents, w)
+	} else {
+		w.WriteHeader(resp.StatusCode)
+		w.Write(contents)
+	}
 }
 
 func init() {
@@ -598,17 +664,20 @@ func init() {
 	// Return the public key used for the VUF
 	r.HandleFunc("/v1/config/vufPublicKey", sendVUFPublicKey).Methods("GET")
 
+	// Return the public key used for server signatures
+	r.HandleFunc("/v1/config/serverPublicKey", sendServerPublicKey).Methods("GET")
+
 	// Send short-lived token to email specified - used POST since it does stuff on the server and should not be repeated
 	r.HandleFunc("/v1/sendToken/{user:.*}", sendTokenHandler).Methods("POST")
 
 	// Set key
 	r.HandleFunc("/v1/publicKey/{user:.*}", setKeyHandler).Methods("PUT")
 
+	// Get key for any value (this rule MUST be before next)
+	r.HandleFunc("/v1/publicKey/{user:[^/]*}/at/{treesize:[0-9]+}", getSizeKeyHandler).Methods("GET")
+
 	// Get key for head
 	r.HandleFunc("/v1/publicKey/{user:.*}", getHeadKeyHandler).Methods("GET")
-
-	// Get key for any value
-	r.HandleFunc("/v1/publicKey/{user:.*}/at/{treesize:[0-9]+}", getSizeKeyHandler).Methods("GET")
 
 	// Handle direct operations on underlying map and log - make sure we used a low privileged key
 	r.HandleFunc(WrappedOp+"{wrappedOp:.*}", handleWrappedOperation).Methods("GET")

@@ -143,7 +143,6 @@ func (client *Client) WithChildPath(path string) *Client {
 // Intended for internal use, MakeRequest makes an HTTP request and converts the error
 // code to those appropriate for the rest of the library.
 func (self *Client) MakeRequest(method, path string, data []byte, headers [][2]string) ([]byte, http.Header, error) {
-	fmt.Println("URL:", self.BaseUrl+path)
 	req, err := http.NewRequest(method, self.BaseUrl+path, bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, err

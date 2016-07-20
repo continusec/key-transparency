@@ -314,19 +314,37 @@ func (self *VerifiableMap) VerifiedMapState(prev *MapTreeState, treeSize int64) 
 	}
 
 	// Get the latest tree head for the tree head log
-	var prevThlth *LogTreeHead
+	var prevThlth, thlth *LogTreeHead
 	if prev != nil {
 		prevThlth = &prev.TreeHeadLogTreeHead
 	}
-	thlth, err := self.TreeHeadLog().VerifiedLatestTreeHead(prevThlth)
-	if err != nil {
-		return nil, err
+
+	// Have we verified ourselves yet?
+	verifiedInTreeHeadLog := false
+
+	// If we already have a tree head that is the size of our map, then we
+	// probably don't need a new one, so try that first.
+	if prevThlth != nil && prevThlth.TreeSize >= mapHead.TreeSize() {
+		err = self.TreeHeadLog().VerifyInclusion(prevThlth, mapHead)
+		if err == nil {
+			verifiedInTreeHeadLog = true
+			thlth = prevThlth
+		} // but it's ok if we fail, since try again below
 	}
 
-	// And make sure we are in it
-	err = self.TreeHeadLog().VerifyInclusion(thlth, mapHead)
-	if err != nil {
-		return nil, err
+	// If we weren't able to take a short-cut above, go back to normal processing:
+	if !verifiedInTreeHeadLog {
+		// Get new tree head
+		thlth, err = self.TreeHeadLog().VerifiedLatestTreeHead(prevThlth)
+		if err != nil {
+			return nil, err
+		}
+
+		// And make sure we are in it
+		err = self.TreeHeadLog().VerifyInclusion(thlth, mapHead)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// All good
