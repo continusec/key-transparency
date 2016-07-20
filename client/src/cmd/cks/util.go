@@ -93,6 +93,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
+		fmt.Printf("%+v\n", resp)
 		return nil, ErrServerError
 	}
 
@@ -327,6 +328,11 @@ func InitDB(server string) (*bolt.DB, error) {
 		}
 
 		_, err = tx.CreateBucket([]byte("cache"))
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.CreateBucket([]byte("updates"))
 		if err != nil {
 			return err
 		}

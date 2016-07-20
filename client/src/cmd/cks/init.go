@@ -114,8 +114,6 @@ func initNewServer(c *cli.Context) error {
 		defer db.Close()
 
 		// First, get public key
-		fmt.Println("Fetching public key for server...")
-
 		pubKey, err := doGet(server + "/v1/config/serverPublicKey")
 		if err != nil {
 			return handleError(err)
@@ -128,11 +126,7 @@ func initNewServer(c *cli.Context) error {
 			return handleError(err)
 		}
 
-		fmt.Println("Received, verified (signed by self) and stored.")
-
 		// Next, get VUF
-		fmt.Println("Fetching VUF key...")
-
 		vufKey, err := doGet(server + "/v1/config/vufPublicKey")
 		if err != nil {
 			return handleError(err)
@@ -144,8 +138,6 @@ func initNewServer(c *cli.Context) error {
 		if err != nil {
 			return handleError(err)
 		}
-
-		fmt.Println("Received, verified (signed by server key) and stored.")
 
 		vmap, err := getMap()
 		if err != nil {
@@ -169,8 +161,6 @@ func initNewServer(c *cli.Context) error {
 		if err != nil {
 			return handleError(err)
 		}
-
-		fmt.Println("Received initial map head state.")
 
 		fmt.Println("Initialization complete.")
 	} else {

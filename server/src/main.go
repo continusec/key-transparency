@@ -92,6 +92,10 @@ Example usage (to export your GPG public key):
 
 gpg --export %s | curl -H "Authorization: %s" -i -X PUT https://continusec-key-server.appspot.com/v1/publicKey/%s -d @-
 
+Or even better:
+
+gpg --export %s | cks upload %s - %s
+
 If you didn't make this request, then please ignore this message.
 
 To learn more about Key Transparency, please visit:
@@ -586,7 +590,7 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 	tb64 := base64.StdEncoding.EncodeToString(token)
 
 	err = SendMail(EmailFromAddress, []string{username}, EmailSubject, fmt.Sprintf(EmailMessage,
-		tb64, username, tb64, username), appengine.NewContext(r))
+		tb64, username, tb64, username, username, username, tb64), appengine.NewContext(r))
 	if err != nil {
 		handleError(err, r, w)
 		return

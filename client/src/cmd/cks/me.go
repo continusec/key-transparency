@@ -1,8 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/gob"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"strings"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/urfave/cli"
 )
 
@@ -130,128 +142,148 @@ func listUpdates(c *cli.Context) error { /*
 	return nil
 }
 
-func setKey(c *cli.Context) error { /*
-		if c.NArg() != 3 {
-			return cli.NewExitError("incorrect number of arguments. see help", 1)
-		}
-		emailAddress := c.Args().Get(0)
-		publicKeyPath := c.Args().Get(1)
-		token := c.Args().Get(2)
+func setKey(c *cli.Context) error {
+	if c.NArg() != 3 {
+		return cli.NewExitError("incorrect number of arguments. see help", 1)
+	}
+	emailAddress := c.Args().Get(0)
+	publicKeyPath := c.Args().Get(1)
+	token := c.Args().Get(2)
 
-		if strings.Index(emailAddress, "@") == -1 {
-			return cli.NewExitError("email address not recognized", 4)
-		}
+	if strings.Index(emailAddress, "@") == -1 {
+		return cli.NewExitError("email address not recognized", 4)
+	}
 
-		var pubKeyBytes []byte
-		if publicKeyPath == "-" {
-			var err error
-			fmt.Println("Starting read...")
-			pubKeyBytes, err = ioutil.ReadAll(os.Stdin)
-			if err != nil {
-				return cli.NewExitError("error reading public key: "+err.Error(), 3)
-			}
-			fmt.Println("Read complete.")
-		} else {
-			var err error
-			pubKeyBytes, err = ioutil.ReadFile(publicKeyPath)
-			if err != nil {
-				return cli.NewExitError("error reading public key: "+err.Error(), 2)
-			}
-		}
-
-		fmt.Printf("Setting key for %s with token...\n", emailAddress)
-
-		url := c.GlobalString("server") + "/v1/publicKey/" + emailAddress
-
-		req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(pubKeyBytes))
+	var pubKeyBytes []byte
+	if publicKeyPath == "-" {
+		var err error
+		fmt.Println("Starting read...")
+		pubKeyBytes, err = ioutil.ReadAll(os.Stdin)
 		if err != nil {
-			return cli.NewExitError("error building HTTP request: "+err.Error(), 2)
+			return cli.NewExitError("error reading public key: "+err.Error(), 3)
 		}
-		req.Header.Set("Authorization", token)
-
-		resp, err := http.DefaultClient.Do(req)
+		fmt.Println("Read complete.")
+	} else {
+		var err error
+		pubKeyBytes, err = ioutil.ReadFile(publicKeyPath)
 		if err != nil {
-			return cli.NewExitError("error making HTTP request: "+err.Error(), 2)
+			return cli.NewExitError("error reading public key: "+err.Error(), 2)
 		}
-		defer resp.Body.Close()
+	}
 
-		if resp.StatusCode != 200 {
-			return cli.NewExitError("non-200 response received", resp.StatusCode)
-		}
+	fmt.Printf("Setting key for %s with token...\n", emailAddress)
 
-		contents, err := ioutil.ReadAll(resp.Body)
+	db, err := GetDB()
+	if err != nil {
+		return handleError(err)
+	}
+
+	var server string
+	err = db.View(func(tx *bolt.Tx) error {
+		server = string(tx.Bucket([]byte("conf")).Get([]byte("server")))
+		return nil
+	})
+	if err != nil {
+		return handleError(err)
+	}
+
+	url := server + "/v1/publicKey/" + emailAddress
+
+	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(pubKeyBytes))
+	if err != nil {
+		return cli.NewExitError("error building HTTP request: "+err.Error(), 2)
+	}
+	req.Header.Set("Authorization", token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return cli.NewExitError("error making HTTP request: "+err.Error(), 2)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return cli.NewExitError("non-200 response received", resp.StatusCode)
+	}
+
+	contents, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return cli.NewExitError("error making HTTP request: "+err.Error(), 3)
+	}
+
+	var aer AddEntryResult
+	err = json.Unmarshal(contents, &aer)
+	if err != nil {
+		return cli.NewExitError("error making HTTP request: "+err.Error(), 4)
+	}
+
+	fmt.Printf("Success. Leaf hash of mutation: %s\n", base64.StdEncoding.EncodeToString(aer.MutationEntryLeafHash))
+
+	k1 := sha256.Sum256([]byte(emailAddress))
+
+	// second part of key is a timestamp for sorting, does not need to match
+	// any timestamp inside of the value
+	k2 := make([]byte, 8)
+	binary.BigEndian.PutUint64(k2, uint64(time.Now().UnixNano()))
+
+	key := append(k1[:], k2...)
+
+	buffer := &bytes.Buffer{}
+	vh := sha256.Sum256(pubKeyBytes)
+	err = gob.NewEncoder(buffer).Encode(&UpdateResult{
+		Email:            emailAddress,
+		MutationLeafHash: aer.MutationEntryLeafHash,
+		ValueHash:        vh[:],
+		LeafIndex:        -1,
+		Timestamp:        time.Now(),
+	})
+	if err != nil {
+		return cli.NewExitError("error writing result to local DB: "+err.Error(), 6)
+	}
+
+	value := buffer.Bytes()
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("updates"))
+		err := b.Put(key, value)
 		if err != nil {
-			return cli.NewExitError("error making HTTP request: "+err.Error(), 3)
+			return err
 		}
-
-		var aer AddEntryResult
-		err = json.Unmarshal(contents, &aer)
-		if err != nil {
-			return cli.NewExitError("error making HTTP request: "+err.Error(), 4)
-		}
-
-		fmt.Printf("Success. Leaf hash of mutation: %s\n", base64.StdEncoding.EncodeToString(aer.MutationEntryLeafHash))
-
-		k1 := sha256.Sum256([]byte(emailAddress))
-
-		// second part of key is a timestamp for sorting, does not need to match
-		// any timestamp inside of the value
-		k2 := make([]byte, 8)
-		binary.BigEndian.PutUint64(k2, uint64(time.Now().UnixNano()))
-
-		key := append(k1[:], k2...)
-
-		buffer := &bytes.Buffer{}
-		vh := sha256.Sum256(pubKeyBytes)
-		err = gob.NewEncoder(buffer).Encode(&UpdateResult{
-			Email:            emailAddress,
-			MutationLeafHash: aer.MutationEntryLeafHash,
-			ValueHash:        vh[:],
-			LeafIndex:        -1,
-			Timestamp:        time.Now(),
-		})
-		if err != nil {
-			return cli.NewExitError("error writing result to local DB: "+err.Error(), 6)
-		}
-
-		value := buffer.Bytes()
-
-		err = db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte("updates"))
-			err := b.Put(key, value)
-			if err != nil {
-				return err
-			}
-			return nil
-		})
-		if err != nil {
-			return cli.NewExitError("error writing result to local DB: "+err.Error(), 5)
-		}
-	*/
+		return nil
+	})
+	if err != nil {
+		return cli.NewExitError("error writing result to local DB: "+err.Error(), 5)
+	}
 	return nil
 }
 
-func mailToken(c *cli.Context) error { /*
-		if c.NArg() != 1 {
-			return cli.NewExitError("exactly one email address must be specified", 1)
-		}
-		emailAddress := c.Args().Get(0)
+func mailToken(c *cli.Context) error {
+	if c.NArg() != 1 {
+		return cli.NewExitError("exactly one email address must be specified", 1)
+	}
+	emailAddress := c.Args().Get(0)
 
-		if strings.Index(emailAddress, "@") == -1 {
-			return cli.NewExitError("email address not recognized", 4)
-		}
+	if strings.Index(emailAddress, "@") == -1 {
+		return cli.NewExitError("email address not recognized", 4)
+	}
 
-		if !c.GlobalBool("yes") {
-			if !confirmIt(fmt.Sprintf("Are you sure you want to generate and send a token to address (%s)? Please only do so if you own that email account.", emailAddress)) {
-				return cli.NewExitError("user cancelled request", 3)
-			}
-		}
-
+	if c.Bool("yes") || confirmIt(fmt.Sprintf("Are you sure you want to generate and send a token to address (%s)? Please only do so if you own that email account.", emailAddress)) {
 		fmt.Printf("Sending mail to %s with token...\n", emailAddress)
 
-		url := c.GlobalString("server") + "/v1/sendToken/" + emailAddress
+		db, err := GetDB()
+		if err != nil {
+			return handleError(err)
+		}
 
-		resp, err := http.Post(url, "", nil)
+		var server string
+		err = db.View(func(tx *bolt.Tx) error {
+			server = string(tx.Bucket([]byte("conf")).Get([]byte("server")))
+			return nil
+		})
+		if err != nil {
+			return handleError(err)
+		}
+
+		resp, err := http.Post(server+"/v1/sendToken/"+emailAddress, "", nil)
 		if err != nil {
 			return cli.NewExitError("error making HTTP request: "+err.Error(), 2)
 		}
@@ -261,6 +293,8 @@ func mailToken(c *cli.Context) error { /*
 		}
 
 		fmt.Printf("Success. See email for further instructions.\n")
-	*/
+	} else {
+		fmt.Printf("Cancelled.\n")
+	}
 	return nil
 }

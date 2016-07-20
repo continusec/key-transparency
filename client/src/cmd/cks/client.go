@@ -60,6 +60,24 @@ func main() {
 				},
 			},
 		},
+		{
+			Name:      "token",
+			Usage:     "mail a short-lived token to your email that can be used to update your public key",
+			Action:    mailToken,
+			ArgsUsage: "[email address to send token to]",
+			Flags: []cli.Flag{
+				cli.BoolFlag{
+					Name:  "yes",
+					Usage: "Bypass confirmation prompts",
+				},
+			},
+		},
+		{
+			Name:      "upload",
+			Usage:     "Upload a public key for a user.",
+			Action:    setKey,
+			ArgsUsage: "[email address for key] [path to public key, or - for stdin] [token received via email]",
+		},
 
 		{
 			Name:      "follow",
@@ -83,18 +101,6 @@ func main() {
 			Usage:     "Drop user that we were interested in",
 			Action:    unfollowUser,
 			ArgsUsage: "[email address for user we no longer care about]",
-		},
-		{
-			Name:      "mailtoken",
-			Usage:     "mail a short-lived token to your email that can be used to update your public key",
-			Action:    mailToken,
-			ArgsUsage: "[email address to send token to]",
-		},
-		{
-			Name:      "setkey",
-			Usage:     "Update public key for a user.",
-			Action:    setKey,
-			ArgsUsage: "[email address for key] [path to public key, or - for stdin] [token received via email]",
 		},
 		{
 			Name:      "listmyupdates",
