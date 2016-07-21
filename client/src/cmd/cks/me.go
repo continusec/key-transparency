@@ -11,10 +11,13 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/continusec/go-client/continusec"
+	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli"
 )
 
@@ -43,106 +46,106 @@ type UpdateResult struct {
 	Timestamp time.Time
 }
 
-func listUpdates(c *cli.Context) error { /*
-		var emailAddress string
+func listUpdates(db *bolt.DB, c *cli.Context) error {
+	var emailAddress string
 
-		switch c.NArg() {
-		case 0:
-			// ignore
-		case 1:
-			emailAddress = c.Args().Get(0)
-		default:
-			return cli.NewExitError("incorrect number of arguments. see help", 1)
-		}
+	switch c.NArg() {
+	case 0:
+		// ignore
+	case 1:
+		emailAddress = c.Args().Get(0)
+	default:
+		return cli.NewExitError("incorrect number of arguments. see help", 1)
+	}
 
-		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Email", "Value Hash", "Timestamp", "Mutation Log Entry", "Sequence"})
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Email", "Value Hash", "Timestamp", "Mutation Log Entry", "Sequence"})
 
-		ms, err := getCurrentHead()
+	ms, err := getCurrentHead()
+	if err != nil {
+		return err
+	}
+
+	gotOne := func(b *bolt.Bucket, k, v []byte) error {
+		var ur UpdateResult
+		err := gob.NewDecoder(bytes.NewReader(v)).Decode(&ur)
 		if err != nil {
-			return cli.NewExitError("error getting current map state from local storage: "+err.Error(), 1)
+			return err
 		}
 
-		gotOne := func(b *bolt.Bucket, k, v []byte) error {
-			var ur UpdateResult
-			err := gob.NewDecoder(bytes.NewReader(v)).Decode(&ur)
+		if ur.LeafIndex == -1 && c.Bool("check") && ms != nil {
+			vmap, err := getMap()
 			if err != nil {
 				return err
 			}
-
-			if ur.LeafIndex == -1 && c.Bool("check") && ms != nil {
-				vmap, err := getMap()
+			proof, err := vmap.MutationLog().InclusionProof(ms.TreeSize(), &continusec.AddEntryResponse{EntryLeafHash: ur.MutationLeafHash})
+			if err != nil {
+				// pass, don't return err as it may not have been sequenced yet
+			} else {
+				err = proof.Verify(&ms.MapTreeHead.MutationLogTreeHead)
 				if err != nil {
 					return err
 				}
-				proof, err := vmap.MutationLog().InclusionProof(ms.TreeSize(), &continusec.AddEntryResponse{EntryLeafHash: ur.MutationLeafHash})
+
+				ur.LeafIndex = proof.LeafIndex
+
+				buffer := &bytes.Buffer{}
+				err = gob.NewEncoder(buffer).Encode(ur)
 				if err != nil {
-					// pass, don't return err as it may not have been sequenced yet
-				} else {
-					err = proof.Verify(&ms.MapTreeHead.MutationLogTreeHead)
-					if err != nil {
-						return err
-					}
+					return err
+				}
 
-					ur.LeafIndex = proof.LeafIndex
+				err = b.Put(k, buffer.Bytes())
 
-					buffer := &bytes.Buffer{}
-					err = gob.NewEncoder(buffer).Encode(ur)
-					if err != nil {
-						return err
-					}
-
-					err = b.Put(k, buffer.Bytes())
-
-					if err != nil {
-						return err
-					}
+				if err != nil {
+					return err
 				}
 			}
-
-			table.Append([]string{
-				ur.Email,
-				base64.StdEncoding.EncodeToString(ur.ValueHash),
-				ur.Timestamp.String()[:19],
-				base64.StdEncoding.EncodeToString(ur.MutationLeafHash),
-				strconv.Itoa(int(ur.LeafIndex)),
-			})
-
-			return nil
 		}
 
-		err = db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte("updates"))
-			if len(emailAddress) == 0 {
-				b.ForEach(func(k, v []byte) error { return gotOne(b, k, v) })
-			} else {
-				eh := sha256.Sum256([]byte(emailAddress))
-				c := b.Cursor()
-				k, v := c.Seek(eh[:])
-				for k != nil {
-					if !bytes.Equal(eh[:], k[:len(eh)]) {
-						return nil
-					}
-					err := gotOne(b, k, v)
-					if err != nil {
-						return err
-					}
-					k, v = c.Next()
-				}
-			}
-
-			return nil
+		table.Append([]string{
+			ur.Email,
+			base64.StdEncoding.EncodeToString(ur.ValueHash),
+			ur.Timestamp.String()[:19],
+			base64.StdEncoding.EncodeToString(ur.MutationLeafHash),
+			strconv.Itoa(int(ur.LeafIndex)),
 		})
-		if err != nil {
-			return cli.NewExitError("error writing result to local DB: "+err.Error(), 5)
+
+		return nil
+	}
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("updates"))
+		if len(emailAddress) == 0 {
+			b.ForEach(func(k, v []byte) error { return gotOne(b, k, v) })
+		} else {
+			eh := sha256.Sum256([]byte(emailAddress))
+			c := b.Cursor()
+			k, v := c.Seek(eh[:])
+			for k != nil {
+				if !bytes.Equal(eh[:], k[:len(eh)]) {
+					return nil
+				}
+				err := gotOne(b, k, v)
+				if err != nil {
+					return err
+				}
+				k, v = c.Next()
+			}
 		}
 
-		table.Render()
-	*/
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	table.Render()
+
 	return nil
 }
 
-func setKey(c *cli.Context) error {
+func setKey(db *bolt.DB, c *cli.Context) error {
 	if c.NArg() != 3 {
 		return cli.NewExitError("incorrect number of arguments. see help", 1)
 	}
@@ -160,60 +163,55 @@ func setKey(c *cli.Context) error {
 		fmt.Println("Starting read...")
 		pubKeyBytes, err = ioutil.ReadAll(os.Stdin)
 		if err != nil {
-			return cli.NewExitError("error reading public key: "+err.Error(), 3)
+			return err
 		}
 		fmt.Println("Read complete.")
 	} else {
 		var err error
 		pubKeyBytes, err = ioutil.ReadFile(publicKeyPath)
 		if err != nil {
-			return cli.NewExitError("error reading public key: "+err.Error(), 2)
+			return err
 		}
 	}
 
 	fmt.Printf("Setting key for %s with token...\n", emailAddress)
 
-	db, err := GetDB()
-	if err != nil {
-		return handleError(err)
-	}
-
 	var server string
-	err = db.View(func(tx *bolt.Tx) error {
+	err := db.View(func(tx *bolt.Tx) error {
 		server = string(tx.Bucket([]byte("conf")).Get([]byte("server")))
 		return nil
 	})
 	if err != nil {
-		return handleError(err)
+		return err
 	}
 
 	url := server + "/v1/publicKey/" + emailAddress
 
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(pubKeyBytes))
 	if err != nil {
-		return cli.NewExitError("error building HTTP request: "+err.Error(), 2)
+		return err
 	}
 	req.Header.Set("Authorization", token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return cli.NewExitError("error making HTTP request: "+err.Error(), 2)
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return cli.NewExitError("non-200 response received", resp.StatusCode)
+		return err
 	}
 
 	contents, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return cli.NewExitError("error making HTTP request: "+err.Error(), 3)
+		return err
 	}
 
 	var aer AddEntryResult
 	err = json.Unmarshal(contents, &aer)
 	if err != nil {
-		return cli.NewExitError("error making HTTP request: "+err.Error(), 4)
+		return err
 	}
 
 	fmt.Printf("Success. Leaf hash of mutation: %s\n", base64.StdEncoding.EncodeToString(aer.MutationEntryLeafHash))
@@ -237,7 +235,7 @@ func setKey(c *cli.Context) error {
 		Timestamp:        time.Now(),
 	})
 	if err != nil {
-		return cli.NewExitError("error writing result to local DB: "+err.Error(), 6)
+		return err
 	}
 
 	value := buffer.Bytes()
@@ -251,12 +249,12 @@ func setKey(c *cli.Context) error {
 		return nil
 	})
 	if err != nil {
-		return cli.NewExitError("error writing result to local DB: "+err.Error(), 5)
+		return err
 	}
 	return nil
 }
 
-func mailToken(c *cli.Context) error {
+func mailToken(db *bolt.DB, c *cli.Context) error {
 	if c.NArg() != 1 {
 		return cli.NewExitError("exactly one email address must be specified", 1)
 	}
@@ -269,13 +267,8 @@ func mailToken(c *cli.Context) error {
 	if c.Bool("yes") || confirmIt(fmt.Sprintf("Are you sure you want to generate and send a token to address (%s)? Please only do so if you own that email account.", emailAddress)) {
 		fmt.Printf("Sending mail to %s with token...\n", emailAddress)
 
-		db, err := GetDB()
-		if err != nil {
-			return handleError(err)
-		}
-
 		var server string
-		err = db.View(func(tx *bolt.Tx) error {
+		err := db.View(func(tx *bolt.Tx) error {
 			server = string(tx.Bucket([]byte("conf")).Get([]byte("server")))
 			return nil
 		})
@@ -285,7 +278,7 @@ func mailToken(c *cli.Context) error {
 
 		resp, err := http.Post(server+"/v1/sendToken/"+emailAddress, "", nil)
 		if err != nil {
-			return cli.NewExitError("error making HTTP request: "+err.Error(), 2)
+			return err
 		}
 
 		if resp.StatusCode != 200 {

@@ -138,7 +138,7 @@ const (
 
 func SendMail(sender string, recipients []string, subject, body string, ctx context.Context) error {
 	sg := sendgrid.NewSendGridClientWithApiKey(SendGridEmailSecretKey)
-	sg.Client = urlfetch.Client(ctx)
+	sg.Client = getHttpClientWithLongerDeadline(ctx)
 
 	message := sendgrid.NewMail()
 	for _, recip := range recipients {
@@ -290,11 +290,16 @@ func handleError(err error, r *http.Request, w http.ResponseWriter) {
 	}
 }
 
+func getHttpClientWithLongerDeadline(ctx context.Context) *http.Client {
+	cctx, _ := context.WithDeadline(ctx, time.Now().Add(30*time.Second))
+	return urlfetch.Client(cctx)
+}
+
 // Returns a VerifiableMap object ready for manipulations
 func getMapObject(ctx context.Context) *continusec.VerifiableMap {
 	return continusec.NewClient(ContinusecAccount,
 		ContinusecSecretKey).WithHttpClient(
-		urlfetch.Client(ctx)).VerifiableMap(ContinusecMap)
+		getHttpClientWithLongerDeadline(ctx)).VerifiableMap(ContinusecMap)
 }
 
 // EmptyLeafHash is the leaf hash of an empty node, pre-calculated since used often.
@@ -640,7 +645,7 @@ func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("Authorization", "Key "+ContinusecPublicKey)
 
-	resp, err := urlfetch.Client(ctx).Do(req)
+	resp, err := getHttpClientWithLongerDeadline(ctx).Do(req)
 	if err != nil {
 		handleError(err, r, w)
 		return

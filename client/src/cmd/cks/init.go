@@ -6,7 +6,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"os"
-	"strings"
+	"sort"
 
 	"github.com/boltdb/bolt"
 	"github.com/olekukonko/tablewriter"
@@ -38,17 +38,11 @@ func makePretty(data []byte) string {
 	}
 }
 
-func showConf(c *cli.Context) error {
-	db, err := GetDB()
-	if err != nil {
-		return handleError(err)
-	}
-	defer db.Close()
-
+func showConf(db *bolt.DB, c *cli.Context) error {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Key", "Value (base-64)"})
 
-	err = db.View(func(tx *bolt.Tx) error {
+	err := db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket([]byte("conf")).ForEach(func(k, v []byte) error {
 			table.Append([]string{
 				string(k),
@@ -58,44 +52,60 @@ func showConf(c *cli.Context) error {
 		})
 	})
 	if err != nil {
-		return handleError(err)
+		return err
 	}
 
 	table.Render()
 	return nil
 }
 
-func showCache(c *cli.Context) error {
-	db, err := GetDB()
-	if err != nil {
-		return handleError(err)
-	}
-	defer db.Close()
+type ByTimestamp []*CacheEntry
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"URL", "Timestamp", "Signature", "Data"})
+func (a ByTimestamp) Len() int           { return len(a) }
+func (a ByTimestamp) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByTimestamp) Less(i, j int) bool { return a[i].Timestamp.Before(a[j].Timestamp) }
 
-	err = db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte("cache")).ForEach(func(k, v []byte) error {
-			var entry CacheEntry
-			err := gob.NewDecoder(bytes.NewBuffer(v)).Decode(&entry)
-			if err != nil {
-				return err
-			}
-			table.Append([]string{
-				string(k)[strings.Index(string(k), "/v1/"):],
-				entry.Timestamp.String()[:19],
-				makePretty(entry.Signature),
-				makePretty(entry.Data),
+func showCache(db *bolt.DB, c *cli.Context) error {
+	switch c.NArg() {
+	case 0:
+		entries := make([]*CacheEntry, 0)
+		err := db.View(func(tx *bolt.Tx) error {
+			return tx.Bucket([]byte("cache")).ForEach(func(k, v []byte) error {
+				var entry CacheEntry
+				err := gob.NewDecoder(bytes.NewBuffer(v)).Decode(&entry)
+				if err != nil {
+					return err
+				}
+				entry.url = string(k)
+				entries = append(entries, &entry)
+				return nil
 			})
-			return nil
 		})
-	})
-	if err != nil {
-		return handleError(err)
-	}
+		if err != nil {
+			return err
+		}
 
-	table.Render()
+		sort.Sort(ByTimestamp(entries))
+
+		table := tablewriter.NewWriter(os.Stdout)
+		table.SetHeader([]string{"Timestamp", "URL"})
+		for _, entry := range entries {
+			table.Append([]string{
+				entry.Timestamp.String()[:19],
+				entry.url,
+			})
+		}
+		table.Render()
+	case 1:
+		entry, err := (&CachingVerifyingRT{DB: db}).getValFromCache(c.Args().Get(0))
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Data:\n%s\b\n\nSignature:%s\n", makePretty(entry.Data), makePretty(entry.Signature))
+	default:
+		return cli.NewExitError("Wrong number of arguments", 1)
+	}
 
 	return nil
 }

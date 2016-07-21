@@ -48,19 +48,31 @@ type CacheEntry struct {
 	Timestamp time.Time
 	Signature []byte
 	Data      []byte
+
+	// not for saving
+	url string
 }
 
-func (self *CachingVerifyingRT) getRespFromCache(key string) *http.Response {
+func (self *CachingVerifyingRT) getValFromCache(key string) (*CacheEntry, error) {
 	var entry CacheEntry
 	err := self.DB.View(func(tx *bolt.Tx) error {
 		return gob.NewDecoder(bytes.NewBuffer(tx.Bucket([]byte("cache")).Get([]byte(key)))).Decode(&entry)
 	})
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return &http.Response{
-		StatusCode: 200,
-		Body:       ioutil.NopCloser(bytes.NewReader(entry.Data)),
+	return &entry, nil
+}
+
+func (self *CachingVerifyingRT) getRespFromCache(key string) *http.Response {
+	entry, err := self.getValFromCache(key)
+	if err == nil {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       ioutil.NopCloser(bytes.NewReader(entry.Data)),
+		}
+	} else {
+		return nil
 	}
 }
 
@@ -92,6 +104,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 	if err != nil {
 		return nil, err
 	}
+
 	if resp.StatusCode != 200 {
 		fmt.Printf("%+v\n", resp)
 		return nil, ErrServerError
@@ -193,10 +206,10 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 
 }
 
-func getMap() (*continusec.VerifiableMap, error) {
+func getServer() (string, error) {
 	db, err := GetDB()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	var server string
 	err = db.View(func(tx *bolt.Tx) error {
@@ -204,9 +217,20 @@ func getMap() (*continusec.VerifiableMap, error) {
 		return nil
 	})
 	if err != nil {
+		return "", err
+	}
+	return server, nil
+}
+
+func getMap() (*continusec.VerifiableMap, error) {
+	db, err := GetDB()
+	if err != nil {
 		return nil, err
 	}
-
+	server, err := getServer()
+	if err != nil {
+		return nil, err
+	}
 	return &continusec.VerifiableMap{Client: continusec.DefaultClient.WithBaseUrl(server + "/v1/wrappedMap").WithHttpClient(&http.Client{Transport: &CachingVerifyingRT{DB: db}})}, nil
 }
 
@@ -337,6 +361,11 @@ func InitDB(server string) (*bolt.DB, error) {
 			return err
 		}
 
+		_, err = tx.CreateBucket([]byte("keys"))
+		if err != nil {
+			return err
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -377,4 +406,21 @@ func openDB(failIfNotThere, deleteExisting bool) (*bolt.DB, error) {
 	}
 
 	return db, nil
+}
+
+func stdCmd(f func(db *bolt.DB, c *cli.Context) error) func(c *cli.Context) error {
+	return func(c *cli.Context) error {
+		db, err := GetDB()
+		if err != nil {
+			return handleError(err)
+		}
+		defer db.Close()
+
+		err = f(db, c)
+		if err != nil {
+			return handleError(err)
+		}
+
+		return nil
+	}
 }

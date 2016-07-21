@@ -42,28 +42,23 @@ func main() {
 		{
 			Name:   "conf",
 			Usage:  "Display server configuration",
-			Action: showConf,
+			Action: stdCmd(showConf),
 		},
 		{
 			Name:   "cache",
 			Usage:  "Display cache of data received from server",
-			Action: showCache,
+			Action: stdCmd(showCache),
 		},
 		{
-			Name:   "update",
-			Usage:  "Update to latest version of the tree",
-			Action: updateTree,
-			Flags: []cli.Flag{
-				cli.IntFlag{
-					Name:  "sequence",
-					Usage: "Update to a particular sequence number",
-				},
-			},
+			Name:      "pull",
+			Usage:     "Update to latest version of the tree",
+			Action:    stdCmd(updateTree),
+			ArgsUsage: "[optional sequence number to pull to, defaults to latest]",
 		},
 		{
 			Name:      "token",
 			Usage:     "mail a short-lived token to your email that can be used to update your public key",
-			Action:    mailToken,
+			Action:    stdCmd(mailToken),
 			ArgsUsage: "[email address to send token to]",
 			Flags: []cli.Flag{
 				cli.BoolFlag{
@@ -73,39 +68,15 @@ func main() {
 			},
 		},
 		{
-			Name:      "upload",
+			Name:      "push",
 			Usage:     "Upload a public key for a user.",
-			Action:    setKey,
+			Action:    stdCmd(setKey),
 			ArgsUsage: "[email address for key] [path to public key, or - for stdin] [token received via email]",
 		},
-
 		{
-			Name:      "follow",
-			Usage:     "Add user that we are interested in",
-			Action:    followUser,
-			ArgsUsage: "[email address for user we care about]",
-		},
-		{
-			Name:   "list",
-			Usage:  "List state of users we care about",
-			Action: listUsers,
-			Flags: []cli.Flag{
-				cli.BoolFlag{
-					Name:  "check",
-					Usage: "Check for new keys",
-				},
-			},
-		},
-		{
-			Name:      "unfollow",
-			Usage:     "Drop user that we were interested in",
-			Action:    unfollowUser,
-			ArgsUsage: "[email address for user we no longer care about]",
-		},
-		{
-			Name:      "listmyupdates",
+			Name:      "log",
 			Usage:     "List updates that have been sent from this client",
-			Action:    listUpdates,
+			Action:    stdCmd(listUpdates),
 			ArgsUsage: "[email address to list updates for, or no args for all]",
 			Flags: []cli.Flag{
 				cli.BoolFlag{
@@ -113,6 +84,24 @@ func main() {
 					Usage: "Check for sequence numbers for any unsequenced against current head.",
 				},
 			},
+		},
+
+		{
+			Name:      "follow",
+			Usage:     "Add user that we are interested in",
+			Action:    stdCmd(followUser),
+			ArgsUsage: "[email address for user we care about]",
+		},
+		{
+			Name:   "list",
+			Usage:  "List state of users we care about",
+			Action: stdCmd(listUsers),
+		},
+		{
+			Name:      "unfollow",
+			Usage:     "Drop user that we were interested in",
+			Action:    stdCmd(unfollowUser),
+			ArgsUsage: "[email address for user we no longer care about]",
 		},
 	}
 

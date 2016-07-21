@@ -3,14 +3,18 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 
 	"github.com/boltdb/bolt"
 	"github.com/continusec/go-client/continusec"
+	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli"
 )
 
@@ -32,6 +36,21 @@ type GetEntryResult struct {
 	PublicKeyValue []byte `json:"publicKeyValue"`
 }
 
+// PublicKeyData is the data stored for a key in the Merkle Tree.
+type PublicKeyData struct {
+	// Sequence number, starting from 0, of different values for this key
+	Sequence int64 `json:"sequence"`
+
+	// PriorTreeSize is any prior tree size that had the value this key for Sequence - 1.
+	PriorTreeSize int64 `json:"priorTreeSize"`
+
+	// The plain text email address for which this key is valid
+	Email string `json:"email"`
+
+	// The public key data held for this key.
+	PGPPublicKey []byte `json:"pgpPublicKey"`
+}
+
 // Verify that this result is included in the given map state
 func (ger *GetEntryResult) VerifyInclusion(ms *continusec.MapTreeState) error {
 	x := sha256.Sum256(ger.VUFResult)
@@ -43,123 +62,179 @@ func (ger *GetEntryResult) VerifyInclusion(ms *continusec.MapTreeState) error {
 	}).Verify(&ms.MapTreeHead)
 }
 
-func listUsers(c *cli.Context) error { /*
-		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Email", "Last updated size"})
+func updateKeyToMapState(key string, ms *continusec.MapTreeState) error {
+	res, err := getValForEmail(key, ms.TreeSize())
+	if err != nil {
+		return err
+	}
 
-		ms, err := getCurrentHead()
+	err = res.VerifyInclusion(ms)
+	if err != nil {
+		return err
+	}
+
+	err = validateVufResult(key, res.VUFResult)
+	if err != nil {
+		return err
+	}
+
+	if len(res.PublicKeyValue) > 0 {
+		pkv := &continusec.RedactedJsonEntry{RedactedJsonBytes: res.PublicKeyValue}
+		data, err := pkv.Data()
 		if err != nil {
-			return cli.NewExitError("error getting current map state from local storage: "+err.Error(), 1)
+			return err
 		}
 
-		gotOne := func(b *bolt.Bucket, k, v []byte) error {
-			lastSeq := int64(binary.BigEndian.Uint64(v))
-			email := string(k)
-
-			if ms != nil && lastSeq < ms.TreeSize() && c.Bool("check") {
-				res, err := getValForEmail(email, ms.TreeSize(), c)
-				if err != nil {
-					return err
-				}
-
-				err = res.VerifyInclusion(ms)
-				if err != nil {
-					return err
-				}
-
-				err = validateVufResult(email, res.VUFResult)
-				if err != nil {
-					return err
-				}
-
-				lastSeq = res.TreeSize
-			}
-
-			table.Append([]string{
-				email,
-				strconv.Itoa(int(lastSeq)),
-			})
-
-			return nil
+		var pkd PublicKeyData
+		err = json.NewDecoder(bytes.NewReader(data)).Decode(&pkd)
+		if err != nil {
+			return err
 		}
 
-		err = db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte("keys"))
-			err := b.ForEach(func(k, v []byte) error { return gotOne(b, k, v) })
+		// this should always be true, but including to prevent loops
+		if pkd.PriorTreeSize > 0 && pkd.PriorTreeSize < ms.TreeSize() {
+			vmap, err := getMap()
 			if err != nil {
 				return err
 			}
+			nextMapState, err := vmap.VerifiedMapState(ms, pkd.PriorTreeSize)
+			if err != nil {
+				return err
+			}
+			err = updateKeyToMapState(key, nextMapState)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func updateKeysToMapState(db *bolt.DB, ms *continusec.MapTreeState) error {
+	kvs := make([][2][]byte, 0)
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("keys"))
+		err := b.ForEach(func(k, v []byte) error {
+			kvs = append(kvs, [2][]byte{k, v})
 			return nil
 		})
 		if err != nil {
-			return cli.NewExitError("error writing result to local DB: "+err.Error(), 5)
+			return err
 		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, kv := range kvs {
+		k := kv[0]
+		email := string(k)
 
-		table.Render()
-	*/
+		err = updateKeyToMapState(email, ms)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func listUsers(db *bolt.DB, c *cli.Context) error {
+	kvs := make([][2][]byte, 0)
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("keys"))
+		err := b.ForEach(func(k, v []byte) error {
+			kvs = append(kvs, [2][]byte{k, v})
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Email", "Last updated size"})
+
+	for _, kv := range kvs {
+		k, v := kv[0], kv[1]
+
+		lastSeq := int64(binary.BigEndian.Uint64(v))
+		email := string(k)
+
+		table.Append([]string{
+			email,
+			strconv.Itoa(int(lastSeq)),
+		})
+	}
+
+	table.Render()
+
 	return nil
 
 }
 
-func followUser(c *cli.Context) error { /*
-		if c.NArg() != 1 {
-			return cli.NewExitError("exactly one email address must be specified", 1)
-		}
-		emailAddress := c.Args().Get(0)
+func followUser(db *bolt.DB, c *cli.Context) error {
+	if c.NArg() != 1 {
+		return cli.NewExitError("exactly one email address must be specified", 1)
+	}
+	emailAddress := c.Args().Get(0)
 
-		if strings.Index(emailAddress, "@") == -1 {
-			return cli.NewExitError("email address not recognized", 4)
-		}
+	if strings.Index(emailAddress, "@") == -1 {
+		return cli.NewExitError("email address not recognized", 4)
+	}
 
-		err := db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte("keys"))
-			k := []byte(emailAddress)
-			v := b.Get(k)
-			if v == nil {
-				k2 := make([]byte, 8)
-				binary.BigEndian.PutUint64(k2, 0)
-				err := b.Put(k, k2[:])
-				if err != nil {
-					return err
-				}
+	err := db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("keys"))
+		k := []byte(emailAddress)
+		v := b.Get(k)
+		if v == nil {
+			k2 := make([]byte, 8)
+			binary.BigEndian.PutUint64(k2, 0)
+			err := b.Put(k, k2[:])
+			if err != nil {
+				return err
 			}
-
-			return nil
-		})
-		if err != nil {
-			return cli.NewExitError("error storing user to follow: "+err.Error(), 2)
 		}
-	*/
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func unfollowUser(c *cli.Context) error { /*
-		if c.NArg() != 1 {
-			return cli.NewExitError("exactly one email address must be specified", 1)
-		}
-		emailAddress := c.Args().Get(0)
+func unfollowUser(db *bolt.DB, c *cli.Context) error {
+	if c.NArg() != 1 {
+		return cli.NewExitError("exactly one email address must be specified", 1)
+	}
+	emailAddress := c.Args().Get(0)
 
-		if strings.Index(emailAddress, "@") == -1 {
-			return cli.NewExitError("email address not recognized", 4)
-		}
+	if strings.Index(emailAddress, "@") == -1 {
+		return cli.NewExitError("email address not recognized", 4)
+	}
 
-		err := db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte("keys"))
-			k := []byte(emailAddress)
-			v := b.Get(k)
-			if v != nil {
-				err := b.Delete(k)
-				if err != nil {
-					return err
-				}
+	err := db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("keys"))
+		k := []byte(emailAddress)
+		v := b.Get(k)
+		if v != nil {
+			err := b.Delete(k)
+			if err != nil {
+				return err
 			}
-
-			return nil
-		})
-		if err != nil {
-			return cli.NewExitError("error storing user to unfollow: "+err.Error(), 2)
 		}
-	*/
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -193,7 +268,21 @@ func validateVufResult(email string, vufResult []byte) error { /*
 	return nil
 }
 
-func updateTree(c *cli.Context) error {
+func updateTree(db *bolt.DB, c *cli.Context) error {
+	seq := 0
+	switch c.NArg() {
+	case 0:
+		seq = 0
+	case 1:
+		var err error
+		seq, err = strconv.Atoi(c.Args().Get(0))
+		if err != nil {
+			return err
+		}
+	default:
+		return cli.NewExitError("wrong number of argument specified", 1)
+	}
+
 	mapState, err := getCurrentHead()
 	if err != nil {
 		return handleError(err)
@@ -201,32 +290,30 @@ func updateTree(c *cli.Context) error {
 
 	vmap, err := getMap()
 	if err != nil {
-		return handleError(err)
+		return err
 	}
-
-	seq := c.Int("sequence")
 
 	newMapState, err := vmap.VerifiedMapState(mapState, int64(seq))
 	if err != nil {
-		return handleError(err)
+		return err
 	}
 
 	b := &bytes.Buffer{}
 	err = gob.NewEncoder(b).Encode(newMapState)
 	if err != nil {
-		return handleError(err)
-	}
-
-	db, err := GetDB()
-	if err != nil {
-		return handleError(err)
+		return err
 	}
 
 	err = db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket([]byte("mapstate")).Put([]byte("head"), b.Bytes())
 	})
 	if err != nil {
-		return handleError(err)
+		return err
+	}
+
+	err = updateKeysToMapState(db, newMapState)
+	if err != nil {
+		return err
 	}
 
 	fmt.Printf("Tree size set to: %d\n", newMapState.TreeSize())
@@ -256,10 +343,13 @@ var (
 	ErrBadReturnVal = errors.New("ErrBadReturnVal")
 )
 
-func getValForEmail(emailAddress string, treeSize int64, c *cli.Context) (*GetEntryResult, error) {
-	url := c.GlobalString("server") + "/v1/publicKey/" + emailAddress + "/at/" + strconv.Itoa(int(treeSize))
+func getValForEmail(emailAddress string, treeSize int64) (*GetEntryResult, error) {
+	server, err := getServer()
+	if err != nil {
+		return nil, err
+	}
 
-	fmt.Println(url)
+	url := server + "/v1/publicKey/" + emailAddress + "/at/" + strconv.Itoa(int(treeSize))
 
 	contents, err := doGet(url)
 	if err != nil {
