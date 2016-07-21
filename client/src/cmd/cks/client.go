@@ -85,7 +85,6 @@ func main() {
 				},
 			},
 		},
-
 		{
 			Name:      "follow",
 			Usage:     "Add user that we are interested in",
@@ -102,6 +101,11 @@ func main() {
 			Usage:     "Drop user that we were interested in",
 			Action:    stdCmd(unfollowUser),
 			ArgsUsage: "[email address for user we no longer care about]",
+		},
+		{
+			Name:   "audit",
+			Usage:  "Audit full map",
+			Action: stdCmd(audit),
 		},
 	}
 

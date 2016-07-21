@@ -86,6 +86,8 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 
 	// First try cache, maybe
 	switch {
+	case strings.HasSuffix(key, "/v1/wrappedMap/log/mutation/tree/0"):
+		// no cache
 	case strings.HasSuffix(key, "/v1/wrappedMap/log/treehead/tree/0"):
 		// no cache
 	case strings.HasSuffix(key, "/v1/wrappedMap/tree/0"):
@@ -144,6 +146,18 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 
 	// Do we need to massage the key a little?
 	switch {
+	case strings.HasSuffix(key, "/v1/wrappedMap/log/mutation/tree/0"):
+		x := make(map[string]interface{})
+		err = json.Unmarshal(contents, &x)
+		if err != nil {
+			return nil, err
+		}
+		ts, ok := x["tree_size"].(float64)
+		if !ok {
+			return nil, ErrWrongKeyFormat
+		}
+
+		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(ts))
 	case strings.HasSuffix(key, "/v1/wrappedMap/log/treehead/tree/0"):
 		x := make(map[string]interface{})
 		err = json.Unmarshal(contents, &x)

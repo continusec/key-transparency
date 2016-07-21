@@ -658,6 +658,8 @@ func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("x-verified-proof", resp.Header.Get("x-verified-proof"))
+	w.Header().Set("x-verified-treesize", resp.Header.Get("x-verified-treesize"))
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	if resp.StatusCode == 200 {
 		writeAndSign(contents, w)
