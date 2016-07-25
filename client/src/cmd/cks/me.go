@@ -61,7 +61,7 @@ func listUpdates(db *bolt.DB, c *cli.Context) error {
 	table := tablewriter.NewWriter(os.Stdout)
 	table.SetHeader([]string{"Email", "Value Hash", "Timestamp", "Mutation Log Entry", "Sequence"})
 
-	ms, err := getCurrentHead()
+	ms, err := getCurrentHead("head")
 	if err != nil {
 		return err
 	}

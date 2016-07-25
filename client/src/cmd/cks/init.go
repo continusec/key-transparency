@@ -166,7 +166,7 @@ func initNewServer(c *cli.Context) error {
 		}
 
 		err = db.Update(func(tx *bolt.Tx) error {
-			return tx.Bucket([]byte("mapstate")).Put([]byte("head"), b.Bytes())
+			return tx.Bucket([]byte("conf")).Put([]byte("head"), b.Bytes())
 		})
 		if err != nil {
 			return handleError(err)

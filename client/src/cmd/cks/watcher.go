@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"crypto"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
@@ -242,30 +245,34 @@ var (
 	ErrUnexpectedKeyFormat = errors.New("ErrUnexpectedKeyFormat")
 )
 
-func validateVufResult(email string, vufResult []byte) error { /*
-		var vuf []byte
-		err := db.View(func(tx *bolt.Tx) error {
-			b := tx.Bucket([]byte("mapstate"))
-			vuf = b.Get([]byte("vufKey"))
-			return nil
-		})
-		if err != nil {
-			return err
-		}
+func validateVufResult(email string, vufResult []byte) error {
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
 
-		pkey, err := x509.ParsePKIXPublicKey(vuf)
-		if err != nil {
-			return err
-		}
+	var vuf []byte
+	err = db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("conf"))
+		vuf = b.Get([]byte("vufKey"))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 
-		ppkey, ok := pkey.(*rsa.PublicKey)
-		if !ok {
-			return ErrUnexpectedKeyFormat
-		}
+	pkey, err := x509.ParsePKIXPublicKey(vuf)
+	if err != nil {
+		return err
+	}
 
-		hashed := sha256.Sum256([]byte(email))
-		return rsa.VerifyPKCS1v15(ppkey, crypto.SHA256, hashed[:], vufResult)*/
-	return nil
+	ppkey, ok := pkey.(*rsa.PublicKey)
+	if !ok {
+		return ErrUnexpectedKeyFormat
+	}
+
+	hashed := sha256.Sum256([]byte(email))
+	return rsa.VerifyPKCS1v15(ppkey, crypto.SHA256, hashed[:], vufResult)
 }
 
 func updateTree(db *bolt.DB, c *cli.Context) error {
@@ -283,7 +290,7 @@ func updateTree(db *bolt.DB, c *cli.Context) error {
 		return cli.NewExitError("wrong number of argument specified", 1)
 	}
 
-	mapState, err := getCurrentHead()
+	mapState, err := getCurrentHead("head")
 	if err != nil {
 		return handleError(err)
 	}
@@ -298,30 +305,39 @@ func updateTree(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	b := &bytes.Buffer{}
-	err = gob.NewEncoder(b).Encode(newMapState)
+	err = setCurrentHead("head", newMapState)
 	if err != nil {
 		return err
 	}
 
-	err = db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte("mapstate")).Put([]byte("head"), b.Bytes())
-	})
-	if err != nil {
-		return err
-	}
-
-	err = updateKeysToMapState(db, newMapState)
-	if err != nil {
-		return err
-	}
+	/*	err = updateKeysToMapState(db, newMapState)
+		if err != nil {
+			return err
+		}*/
 
 	fmt.Printf("Tree size set to: %d\n", newMapState.TreeSize())
 
 	return nil
 }
 
-func getCurrentHead() (*continusec.MapTreeState, error) {
+func setCurrentHead(key string, newMapState *continusec.MapTreeState) error {
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+
+	b := &bytes.Buffer{}
+	err = gob.NewEncoder(b).Encode(newMapState)
+	if err != nil {
+		return err
+	}
+
+	return db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("conf")).Put([]byte(key), b.Bytes())
+	})
+}
+
+func getCurrentHead(key string) (*continusec.MapTreeState, error) {
 	var mapState continusec.MapTreeState
 
 	db, err := GetDB()
@@ -330,7 +346,7 @@ func getCurrentHead() (*continusec.MapTreeState, error) {
 	}
 
 	err = db.View(func(tx *bolt.Tx) error {
-		return gob.NewDecoder(bytes.NewReader(tx.Bucket([]byte("mapstate")).Get([]byte("head")))).Decode(&mapState)
+		return gob.NewDecoder(bytes.NewReader(tx.Bucket([]byte("conf")).Get([]byte(key)))).Decode(&mapState)
 	})
 	if err != nil {
 		return nil, err

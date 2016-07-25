@@ -27,8 +27,8 @@ import (
 	"golang.org/x/net/context"
 )
 
-// MapMutation represents an entry in the Mutation Log for a map
-type MapMutation struct {
+// mapMutation represents an entry in the Mutation Log for a map
+type mapMutation struct {
 	// When the mutation entry was generated
 	Timestamp time.Time `json:"timestamp"`
 
@@ -120,7 +120,7 @@ func (node *mapAuditNode) CalcHash() []byte {
 
 // Given a root node, update it with a given map mutation, returning the new
 // root hash.
-func addMutationToTree(root *mapAuditNode, mut *MapMutation) ([]byte, error) {
+func addMutationToTree(root *mapAuditNode, mut *mapMutation) ([]byte, error) {
 	keyPath := ConstructMapKeyPath(mut.Key)
 	head := root
 
@@ -254,7 +254,7 @@ func (f *mutationEntryFactory) CreateFromBytes(b []byte) (VerifiableEntry, error
 
 	// Now decode the map mutation as we need the value to either make the separate value
 	// or to cross check against the real value
-	var mut MapMutation
+	var mut mapMutation
 	err := json.NewDecoder(bytes.NewReader(bytesForMutation)).Decode(&mut)
 	if err != nil {
 		return nil, err
@@ -353,7 +353,7 @@ func (a *auditState) ProcessUntilAtLeast(ctx context.Context, size int64) error 
 			}
 
 			// Decode it into standard structure
-			var mutation MapMutation
+			var mutation mapMutation
 			err = json.Unmarshal(mutationJson, &mutation)
 			if err != nil {
 				return err
@@ -390,13 +390,13 @@ func (a *auditState) ProcessUntilAtLeast(ctx context.Context, size int64) error 
 
 			// Finally, if we actually made a change (ie the mutation did something)
 			// then call the underlying audit function provided by the client.
-			if !bytes.Equal(lastRootHash, rh) {
+			if a.MapAuditFunction != nil && !bytes.Equal(lastRootHash, rh) {
 				me, ok := entry.(*mutationEntry)
 				if !ok {
 					return ErrVerificationFailed
 				}
 
-				err = a.MapAuditFunction(ctx, idx, &mutation, me.Value)
+				err = a.MapAuditFunction(ctx, idx, mutation.Key, me.Value)
 				if err != nil {
 					return err
 				}
@@ -468,51 +468,56 @@ func (a *auditState) CheckTreeHeadEntry(ctx context.Context, idx int64, entry Ve
 // value where the previous value is not current.
 // idx the index of the mutation - while this will always increase, there may be gaps per the
 // reasons outlined above.
-// mutation is the actual mutation entry.
+// key is the key that is being changed
 // value (produced by VerifiableEntryFactory specified when creating the auditor) is the
-// actual value being set/deleted/modified.
-type MapAuditFunction func(ctx context.Context, idx int64, mutation *MapMutation, value VerifiableEntry) error
+//  value being set/deleted/modified.
+type MapAuditFunction func(ctx context.Context, idx int64, key []byte, value VerifiableEntry) error
 
-// (Experimental API surface, likely to change) CreateInMemoryTreeHeadLogAuditor is similar
-// to VerifiableLog.VerifyEntries, however to verify a map, one should verify that every single
-// entry in the map's TreeHead log is correct, and as such this method produces a suitable
-// LogAuditFunction that can be used for that task.
-// This function:
-// 1. Will re-create (by fetching mutation entries) a copy of the map in memory and verify
-// that the mutation log hash, and the map hash for a given tree size (as passed to the audit function,
-// most typically by calling VerifyEntries() on the tree head log, are correct.
-// 2. That the mutation log is operating correctly.
-// 3. In addition vill call the specified MapAuditFunction to allow an auditor to additionally
-// perform audits on the actual contents of the map mutation. See the documentation for
-// MapAuditFunction for details.
-// entryValueFactory specifies the factory that should be used for creating VerifiableEntries
-// that should be passed to the MapAuditFunction.
+// VerifyMap (Experimental API surface, likely to change) is a utility method for auditors
+// that wish to audit the full content of a map, as well as the map operation. This method
+// will verify every entry in the TreeHeadLogTreeHead between prev and head - and to do so
+// will retrieve *all* mutation entries from the underlying mutation log, and play them
+// forward in an in-memory map copy.
+//
+// In addition to verifying the correct operation of the map itself, a client also specifies
+// an auditFunc that is called for each set value operation that results in a change to the
+// map itself. As such a client can also verify any property desired around the actual
+// key/values themselves that are being manipulated. Note that not every mutation will result
+// in a call to auditFunc - operations that result in no change to the map will not call
+// the audit function.
+//
+// To verify all every log tree head entry, pass nil for prev, which will also bypass consistency proof checking. Head must not be nil.
 //
 // Example usage:
 //
-//	// Get the latest tree head from the tree head log that we care about
-//	treeHeadLogHead, err := vmap.TreeHeadLog().VerifiedLatestTreeHead(nil)
+//	latestMapState, err := vmap.VerifiedLatestMapState(nil)
 //	if err != nil {
 //		...
 //	}
 //
-//	// Now, verify all the entries in the tree head log up to that point, using
-//	// a LogAuditFunction returned by the map.
-//	err = vmap.TreeHeadLog().VerifyEntries(ctx, nil, treeHeadLogHead, continusec.JsonEntryFactory, vmap.CreateInMemoryTreeHeadLogAuditor(
-//		continusec.RawDataEntryFactory, func(ctx context.Context, idx int64, mutation *continusec.MapMutation, value continusec.VerifiableEntry) error {
-//
-//			... verify properties of mutation, value ...
-//
-//			return nil
-//		}),
-//	)
+//	err = vmap.VerifyMap(ctx, nil, latestMapState, continusec.RedactedJsonEntryFactory, func(ctx context.Context, idx int64, key []byte, value continusec.VerifiableEntry) error {
+//		... // verify anything you like about the content
+//		return nil
+//	})
 //	if err != nil {
 //		...
 //	}
 //
-// Note that verifying a map fully in this manner requires downloading all mutation entries,
-// and replaying them on a local copy. The current audit function does this simply in memory,
-// so this is not suitable for super large maps.
-func (vmap *VerifiableMap) CreateInMemoryTreeHeadLogAuditor(entryValueFactory VerifiableEntryFactory, mf MapAuditFunction) LogAuditFunction {
-	return (&auditState{Map: vmap, MapAuditFunction: mf, EntryValueFactory: entryValueFactory}).CheckTreeHeadEntry
+// While suitable for small to medium maps, this requires the entire map be built in-memory
+// which may not be suitable for larger systems that will have more complex requirements.
+func (self *VerifiableMap) VerifyMap(ctx context.Context, prev *MapTreeState, head *MapTreeState, factory VerifiableEntryFactory, auditFunc MapAuditFunction) error {
+	var prevLth *LogTreeHead
+	if prev != nil {
+		prevLth = &prev.TreeHeadLogTreeHead
+	}
+
+	if head == nil {
+		return ErrNilTreeHead
+	}
+
+	return self.TreeHeadLog().VerifyEntries(ctx, prevLth, &head.TreeHeadLogTreeHead, JsonEntryFactory, (&auditState{
+		Map:               self,
+		MapAuditFunction:  auditFunc,
+		EntryValueFactory: factory,
+	}).CheckTreeHeadEntry)
 }

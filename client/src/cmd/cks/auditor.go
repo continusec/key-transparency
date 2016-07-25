@@ -23,15 +23,28 @@ func audit(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	treeHeadLogHead, err := vmap.TreeHeadLog().VerifiedLatestTreeHead(nil)
+	prevMapState, err := getCurrentHead("auditedhead")
+	if err != nil {
+		if confirmIt("No previous audited head found. Start from scratch? (yes/no)") {
+			// all good, continue
+			prevMapState = nil
+		} else {
+			return err
+		}
+	}
+
+	curMapState, err := getCurrentHead("head")
 	if err != nil {
 		return err
 	}
 
-	sequenceNumberPerKey := make(map[string]int64) // we use string instead of []byte since it won't hash
-	err = vmap.TreeHeadLog().VerifyEntries(context.Background(), nil, treeHeadLogHead, continusec.JsonEntryFactory, vmap.CreateInMemoryTreeHeadLogAuditor(
-		continusec.RedactedJsonEntryFactory, func(ctx context.Context, idx int64, mutation *continusec.MapMutation, value continusec.VerifiableEntry) error {
-			mk := string(mutation.Key)
+	if prevMapState != nil && prevMapState.TreeHeadLogTreeHead.TreeSize >= curMapState.TreeHeadLogTreeHead.TreeSize {
+		fmt.Println("Previous audited tree head log size is greater than or equal to current - no audit needed.")
+		return nil
+	} else {
+		sequenceNumberPerKey := make(map[string]int64) // we use string instead of []byte since it won't hash
+		err = vmap.VerifyMap(context.Background(), prevMapState, curMapState, continusec.RedactedJsonEntryFactory, func(ctx context.Context, idx int64, key []byte, value continusec.VerifiableEntry) error {
+			mk := string(key)
 
 			oldSeq, ok := sequenceNumberPerKey[mk]
 			if !ok {
@@ -58,13 +71,17 @@ func audit(db *bolt.DB, c *cli.Context) error {
 			sequenceNumberPerKey[mk] = expectedSequence
 
 			return nil
-		}),
-	)
-	if err != nil {
-		return err
+		})
+		if err != nil {
+			return err
+		}
+
+		err = setCurrentHead("auditedhead", curMapState)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println("Audit successful.")
+		return nil
 	}
-
-	fmt.Println("Success!")
-
-	return nil
 }

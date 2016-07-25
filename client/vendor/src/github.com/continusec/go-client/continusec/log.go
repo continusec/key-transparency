@@ -469,9 +469,11 @@ func (self *VerifiableLog) VerifyEntries(ctx context.Context, prev *LogTreeHead,
 	defer canc()
 	for entry := range self.Entries(ourCtx, idx, head.TreeSize, factory) {
 		// audit
-		err := auditFunc(ctx, idx, entry)
-		if err != nil {
-			return err
+		if auditFunc != nil {
+			err := auditFunc(ctx, idx, entry)
+			if err != nil {
+				return err
+			}
 		}
 
 		mtlHash, err := entry.LeafHash()
