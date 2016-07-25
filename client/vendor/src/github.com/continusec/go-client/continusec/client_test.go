@@ -176,7 +176,7 @@ func TestStuff(t *testing.T) {
 	ctx := context.TODO()
 
 	count := 0
-	err = log.VerifyEntries(ctx, nil, head103, RawDataEntryFactory, func(idx int64, entry VerifiableEntry) error {
+	err = log.VerifyEntries(ctx, nil, head103, RawDataEntryFactory, func(ctx context.Context, idx int64, entry VerifiableEntry) error {
 		_, err := entry.Data()
 		if err != nil {
 			return err
@@ -198,7 +198,7 @@ func TestStuff(t *testing.T) {
 	}
 
 	count = 0
-	err = log.VerifyEntries(ctx, head1, head103, JsonEntryFactory, func(idx int64, entry VerifiableEntry) error {
+	err = log.VerifyEntries(ctx, head1, head103, JsonEntryFactory, func(ctx context.Context, idx int64, entry VerifiableEntry) error {
 		_, err := entry.Data()
 		if err != nil {
 			return err
@@ -219,7 +219,7 @@ func TestStuff(t *testing.T) {
 	}
 
 	count = 0
-	err = log.VerifyEntries(ctx, head1, head3, JsonEntryFactory, func(idx int64, entry VerifiableEntry) error {
+	err = log.VerifyEntries(ctx, head1, head3, JsonEntryFactory, func(ctx context.Context, idx int64, entry VerifiableEntry) error {
 		_, err := entry.Data()
 		if err != nil {
 			return err
@@ -235,7 +235,7 @@ func TestStuff(t *testing.T) {
 	}
 
 	count = 0
-	err = log.VerifyEntries(ctx, head50, head103, RawDataEntryFactory, func(idx int64, entry VerifiableEntry) error {
+	err = log.VerifyEntries(ctx, head50, head103, RawDataEntryFactory, func(ctx context.Context, idx int64, entry VerifiableEntry) error {
 		_, err := entry.Data()
 		if err != nil {
 			return err

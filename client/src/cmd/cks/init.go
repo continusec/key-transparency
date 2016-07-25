@@ -102,7 +102,7 @@ func showCache(db *bolt.DB, c *cli.Context) error {
 			return err
 		}
 
-		fmt.Printf("Data:\n%s\b\n\nSignature:%s\n", makePretty(entry.Data), makePretty(entry.Signature))
+		fmt.Printf("Data:\n%s\b\n\nSignature:\n%s\n", makePretty(entry.Data), makePretty(entry.Signature))
 	default:
 		return cli.NewExitError("Wrong number of arguments", 1)
 	}

@@ -23,6 +23,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	"golang.org/x/net/context"
+
 	"github.com/continusec/objecthash"
 )
 
@@ -66,9 +68,9 @@ var (
 	ErrNotAllEntriesReturned = errors.New("ErrNotAllEntriesReturned")
 )
 
-// AuditFunction is a function that is called for all matching log entries.
+// LogAuditFunction is a function that is called for all matching log entries.
 // Return non-nil to stop the audit.
-type AuditFunction func(idx int64, entry VerifiableEntry) error
+type LogAuditFunction func(ctx context.Context, idx int64, entry VerifiableEntry) error
 
 // MerkleTreeLeaf is an interface to represent any object that a Merkle Tree Leaf can be calculated for.
 // This includes RawDataEntry, JsonEntry, RedactedJsonEntry, AddEntryResponse and MapHead.

@@ -425,7 +425,7 @@ func (self *VerifiableLog) VerifySuppliedInclusionProof(prev *LogTreeHead, proof
 // a log, as well as the log operation. This method will retrieve all entries in batch from
 // the log between the passed in prev and head LogTreeHeads, and ensure that the root hash in head can be confirmed to accurately represent
 // the contents of all of the log entries retrieved. To start at entry zero, pass nil for prev, which will also bypass consistency proof checking. Head must not be nil.
-func (self *VerifiableLog) VerifyEntries(ctx context.Context, prev *LogTreeHead, head *LogTreeHead, factory VerifiableEntryFactory, auditFunc AuditFunction) error {
+func (self *VerifiableLog) VerifyEntries(ctx context.Context, prev *LogTreeHead, head *LogTreeHead, factory VerifiableEntryFactory, auditFunc LogAuditFunction) error {
 	if head == nil {
 		return ErrNilTreeHead
 	}
@@ -469,7 +469,7 @@ func (self *VerifiableLog) VerifyEntries(ctx context.Context, prev *LogTreeHead,
 	defer canc()
 	for entry := range self.Entries(ourCtx, idx, head.TreeSize, factory) {
 		// audit
-		err := auditFunc(idx, entry)
+		err := auditFunc(ctx, idx, entry)
 		if err != nil {
 			return err
 		}

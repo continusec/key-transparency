@@ -10,7 +10,7 @@
 		{
 			"importpath": "github.com/continusec/go-client/continusec",
 			"repository": "https://github.com/continusec/go-client",
-			"revision": "6d3c13b385e4ee7cb126e342ed6296aebf68c6dc",
+			"revision": "9b37a3d084b48b3b3b34dd9c40c9c457e128a0e9",
 			"branch": "master",
 			"path": "/continusec"
 		},
