@@ -1,17 +1,31 @@
+# See the README.md at:
+# https://github.com/continusec/key-transparency/blob/master/server/README.md
+# for more details on the contents of this file, including how to configure
+# Continusec.
+
 [server]
-base_path = "https://continusec-key-server.appspot.com"
-disable_authentication = false
+# The base_path is used for insertion into the email templates when tokens
+# are mailed out - this can be ignored if disable_authentication is set.
+base_path = "https://yourserver.host.name"
+
+# If set to true, will not use base_path above, nor the SendGrid key
+# for sending messages. Instead any request to set key will be allowed.
+# This is useful for testing or bulk loads but should be disabled for real usage.
+disable_authentication = true
+
+# If set to true, will use App Engine request contexts, and urlfetch clients.
 hosted_in_app_engine = false
 
 [continusec]
-account = "606281927392511840"
-map = "keys2"
-mutating_key = "75cc2c8b86e96d1574c209d2ec1d3aa418e2ffd19bcc285e8d67111a4048e991"
-readonly_key = "4ac946464f5fa0b150fbf8f99c830302809cc9c4e84ebc1548e2c5ab992d5e28"
+account = "your account number as configured at https://console.continusec.com/"
+map = "map name as created in the Continusec Console"
+mutating_key = "API key that has Set / delete map values as configured in the Continusec Console"
+readonly_key = "restricted read-only API key as configured in the Continusec Console"
 
 [sendgrid]
-secret_key = "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"
-from_address = "key-transparency-token@continusec.com"
+# This section may be ignored if disable_authentication is set to true.
+secret_key = "SendGrid secret key as supplied by SendGrid"
+from_address = "user@yourserver.com"
 mail_subject = "Key Transparency Token Request"
 token_template = """Thank you for requesting an authorization token for submitting your key data.
 
@@ -22,32 +36,24 @@ Example usage (to export your GPG public key):
 
 gpg --export {{ .Email }} | curl -H "Authorization: {{ .Token }}" -i -X PUT {{ .BasePath }}/v1/publicKey/{{ .Email }} -d @-
 
-Or even better:
+Or, using the cks tool:
 
 gpg --export {{ .Email }} | cks upload {{ .Email }} - {{ .Token }}
 
 If you didn't make this request, then please ignore this message.
-
-To learn more about Key Transparency, please visit:
-https://www.continusec.com/case-studies/key-transparency
-
-Continusec Support
 """
 
 [crypto]
 # This key is used to sign server responses and as such:
 # 1. Provides extra layer of security between the server and clients (prevents MITM by
 #    misissued TLS certificate).
-# 2. Provides a proof of misbehavior by the server (if needed).
+# 2. Provides a proof of misbehavior by the server in event of a discrepancy.
 #
 # To generate your own key:
 #
 # openssl ecparam -genkey -name prime256v1
-#
 server_ec_private_key = """-----BEGIN EC PRIVATE KEY-----
-MHcCAQEEIOk4+klqXOs0jnTrRxthdm2ODtWp9A4i8gGtaPNPFaHOoAoGCCqGSM49
-AwEHoUQDQgAE6YWUB3dQBq68c0Ui3CUkUnO7Em9tAON00xNumde74DRiFL3QPM7s
-bqljPc2mQSCYbmP5M9IUmdsgrF3lC/R2Qg==
+...
 -----END EC PRIVATE KEY-----"""
 
 # This key is used to sign tokens that are used to validate ownership
@@ -58,13 +64,8 @@ bqljPc2mQSCYbmP5M9IUmdsgrF3lC/R2Qg==
 # openssl ecparam -genkey -name prime256v1
 #
 # You could choose to use the same key as for the server key if desired.
-# Additionally, if you set disable_authentication to true (under [server]
-# above), then this key is not needed as email tokens are not required.
-# This can be useful during testing.
 email_token_ec_private_key = """-----BEGIN EC PRIVATE KEY-----
-MHcCAQEEIGMyhJz/w4aTURTP5lTI6crKj8i75ZGoHlvdImOQn5mdoAoGCCqGSM49
-AwEHoUQDQgAEBZnJEoDgykt/k98MJXfDPlLTrXS1SwLRutfmgWc8+Md25/nCdY11
-S6f+pE01/wPDrVy1441qghsw4lweq9nHCg==
+...
 -----END EC PRIVATE KEY-----"""
 
 # This key is used to create a signature that forms the basis of the
@@ -74,33 +75,7 @@ S6f+pE01/wPDrVy1441qghsw4lweq9nHCg==
 # To generate your own key:
 #
 # openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
-#
 vuf_rsa_private_key = """-----BEGIN PRIVATE KEY-----
-MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDHpyipt0nlbhAt
-yP8gATh/GoHuvXOr+HPUi+k589BjGRlAfpLk77YEP7MFZT0WTZ8DdIG1uZFyw37a
-e1b2+XY2xgJOahNOm2ZYoAyW9DSdPrl8bt7fz8Ub0QgAYuJLGQlzzhjjs75QKm8b
-KDORxOJviw0WVgREIy2gvSsxKGyZDx7q0Qqlu7qSPwR33geRCOVdPRnJ8hEJ0Zg3
-8NRTlDCCJd71ExdgUkXBjBCfXkX8rkpc8Mlf22FJbnvH6CpUpqM/Z4gu55U3vKiC
-10Bwr4xrXUAbylfXPF5LOCiccmErkhDFsRXGNQykB2FIDrfePWp0O8Gb8wNYLYQ2
-I0JuiUxhAgMBAAECggEAQ7WrErO4efizv/NUorQHRwPkYOUbX40pK0Iv3JmVaKZQ
-bBEBHGc3YYWA3ymQaAn3DaLrgofmjfdDBDGkMqozryvECHftCFGnihLtchxr45As
-M8keCOVbwa1Ie2kNuc5J6F5TDpYcyu85MwqVQrB04sNTsumFFN6hUMwW49sDyXw/
-jNlrsdH2UOx3qpHEVBuBJ0YASr6fQR8gWLXf9lntf3KDh5tkBlVyk5itSKzVidl0
-SsFEAioNg1M2ETzNPnfjy24mRxDLDHinLxC/SdlvnFcI265HLkdDvLLBho58HgEA
-vqhWjDD70uHcjnDHCreB7BVEF575iqxL+Z2lJcwNYQKBgQDzN5pwMZsXIOCtoLQl
-NjnqruNvw+LFFS7O20PMTGz21dCBNdxPWczqG/4CG8gW0ov9kVSJ/iKc2ZcPpfDm
-YngSDsJj4bvkF0ax+M5msMM6Xk465v/ZbRh+dt8XCygdgVyCY9hwaAoCHnNlFFjC
-GQUrXZGy9PJ5uzQhdWAnrVNh/QKBgQDSJWo+dMyrnEaVDIt0Z6ohR9ONlqt1VNSH
-EOhdU/Twctu5c8KdV8CSwpDhR1Kpu1GpGTlYSlD+VW8NipX0mFnlHkk1Sb++Vb8n
-FFgRTk0CWUcTjKkaxvKH5rO2iW9Giew5RI4QdN0ztjvg7H2qcr6EM5V75vvqvMQM
-vLw1Osf/NQKBgD1peNGDdQmt/41X2qTawF0Fs9/wsj3ZT2xj6QaY9ZqN+ovlsa9H
-mXozfzvBEBDTMQ3huFrvlIXOW1pUKDPEAVVt7J+TzAGX7v3ZOSSs1V7TmSU+VrPr
-3BdypHoJEyQAGf/CflBDtOM8FR8cuByqfKeqhLOPLfqWzl70aEcceMVxAoGAdU+P
-rMf1DYPS3xe+rb/E+IkpLuxCUOCHN9MXdCoPHT9xK2jU5pL7HLJiwG/ZVIkOQBCl
-s4ThC+nTccLAjWeTH1U11vqRgIZLjFxOAXMtiDcgd2hZampPL9B42FiGduE9roZ3
-q/YhGeIMMTazvDgL5K8LLry2OscfxmCBzFFBHlUCgYEA6UZIovezWwyvJi/Zxm4r
-4gWwmngYJUhM1BCI51qlGIA2BnGWOwDG3NSPec0a5kNKNIQAhL1+C0arsUKTUlg1
-fiS1P7W7Y4r1KN0V8r3NvJ0Gwn5XfAwDPhY0hTyd1y/6zgVizTf2xlr1XAiFXjif
-1TCo6zBjbVZoMrX3jFXfdGs=
+...
 -----END PRIVATE KEY-----"""
 

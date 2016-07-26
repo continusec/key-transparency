@@ -219,7 +219,11 @@ func initMessageTemplates() error {
 func loadConfigFile() error {
 	_, err := toml.DecodeFile("config.toml", &config)
 	if err != nil {
-		return err
+		// also try src/config.toml
+		_, err = toml.DecodeFile("src/config.toml", &config)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = initPrivateKeys()
