@@ -55,7 +55,7 @@ Then make your way to the server code:
 
     cd key-transparency/server
 
-And start by editing `src/config.toml`:
+And start by copying `src/config.toml.template` to `src/config.toml` and then editing:
 
 1. For the `[server]` section, leave `disable_authentication` set to `true` for now, which prevents needing a SendGrid key for sending email, and if you are planning to use Google App Engine to run the server, set `hosted_in_app_engine` to `true`.
 
