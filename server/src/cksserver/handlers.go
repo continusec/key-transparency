@@ -300,8 +300,16 @@ func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("x-verified-proof", resp.Header.Get("x-verified-proof"))
-	w.Header().Set("x-verified-treesize", resp.Header.Get("x-verified-treesize"))
+	actualHeader, ok := resp.Header[http.CanonicalHeaderKey("X-Verified-Proof")]
+	if ok {
+		w.Header().Set("x-verified-proof", strings.Join(actualHeader, ","))
+	}
+
+	actualHeader, ok = resp.Header[http.CanonicalHeaderKey("X-Verified-TreeSize")]
+	if ok {
+		w.Header().Set("x-verified-treesize", strings.Join(actualHeader, ","))
+	}
+
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	if resp.StatusCode == 200 {
 		writeAndSign(contents, w)
