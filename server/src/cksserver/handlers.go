@@ -23,6 +23,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/continusec/go-client/continusec"
@@ -61,7 +62,10 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = sendMail(getContext(r), config.SendGrid.FromAddress, []string{username}, config.SendGrid.EmailSubject, string(message.Bytes()))
+	s := string(message.Bytes())
+	s = strings.Replace(s, "&#43;", "+", -1) // TODO: find better way of not escaping +
+
+	err = sendMail(getContext(r), config.SendGrid.FromAddress, []string{username}, config.SendGrid.EmailSubject, s)
 	if err != nil {
 		handleError(err, r, w)
 		return
@@ -160,6 +164,11 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		err = json.Unmarshal(ed, &pkd)
 		if err != nil {
 			handleError(err, r, w)
+			return
+		}
+
+		if bytes.Equal(pkd.PGPPublicKey, body) {
+			w.WriteHeader(204) // TODO: pick a better header for no action required
 			return
 		}
 
