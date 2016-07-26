@@ -15,7 +15,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"fmt"
+	"html/template"
 	"io/ioutil"
 	"math/big"
 	"net/http"
@@ -29,6 +29,7 @@ import (
 	"google.golang.org/appengine/log"
 	"google.golang.org/appengine/urlfetch"
 
+	"github.com/BurntSushi/toml"
 	"github.com/gorilla/mux"
 
 	"github.com/continusec/go-client/continusec"
@@ -60,69 +61,37 @@ curl -X POST -d "" https://continusec-key-server.appspot.com/v1/sendToken/adam.e
 
 */
 
-const (
-	// The Continusec account to use
-	ContinusecAccount = "606281927392511840"
+type tomlConfig struct {
+	Server     serverConf
+	Continusec continusecConf
+	SendGrid   sendgridConf
+	Crypto     privateKeyConf
+}
 
-	// The Continusec API key to use for getting/setting values directly on the map
-	ContinusecSecretKey = "75cc2c8b86e96d1574c209d2ec1d3aa418e2ffd19bcc285e8d67111a4048e991"
+type serverConf struct {
+	BasePath              string `toml:"base_path"`
+	DisableAuthentication bool   `toml:"disable_authentication"`
+}
 
-	// The Continusec API key to use for read-only operations to the mutation/tree-head logs
-	ContinusecPublicKey = "4ac946464f5fa0b150fbf8f99c830302809cc9c4e84ebc1548e2c5ab992d5e28"
+type continusecConf struct {
+	Account            string
+	Map                string
+	MutatingKey        string `toml:"mutating_key"`
+	LimitedReadOnlyKey string `toml:"readonly_key"`
+}
 
-	// The name of the map to use
-	ContinusecMap = "keys2"
+type sendgridConf struct {
+	SecretKey     string `toml:"secret_key"`
+	FromAddress   string `toml:"from_address"`
+	EmailSubject  string `toml:"mail_subject"`
+	TokenTemplate string `toml:"token_template"`
+}
 
-	// SendGrid key
-	SendGridEmailSecretKey = "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"
-
-	// From address for sending email token
-	EmailFromAddress = "key-transparency-token@continusec.com"
-
-	// Subject
-	EmailSubject = "Key Transparency Token Request"
-
-	// Message
-	EmailMessage = `Thank you for requesting an authorization token for submitting your key data.
-
-The following token has been generated and is valid for 1 hour:
-%s
-
-Example usage (to export your GPG public key):
-
-gpg --export %s | curl -H "Authorization: %s" -i -X PUT https://continusec-key-server.appspot.com/v1/publicKey/%s -d @-
-
-Or even better:
-
-gpg --export %s | cks upload %s - %s
-
-If you didn't make this request, then please ignore this message.
-
-To learn more about Key Transparency, please visit:
-https://www.continusec.com/case-studies/key-transparency
-
-Continusec Support`
-)
-
-var (
-	// VUFPrivateKey is used to create a signature, that forms the basis of the
-	// key used to store the public key in the Merkle Tree. We use RSA because this must
-	// be deterministic.
-	VUFPrivateKey = mustReadRSAPrivateKeyFromPEM("keys/vuf.pem")
-
-	// VUFPublicKey is a DER encoded public key ready to serve
-	VUFPublicKey = mustCreateDERPublicKey(mustReadRSAPrivateKeyFromPEM("keys/vuf.pem"))
-
-	// ServerPrivateKey is used to sign all responses
-	ServerPrivateKey = mustReadECPrivateKeyFromPEM("keys/server.pem")
-
-	// ServerPrivateKey is a DER encoded public key ready to serve
-	ServerPublicKey = mustCreateDERPublicKeyFromEC(mustReadECPrivateKeyFromPEM("keys/server.pem"))
-
-	// EmailTokenPrivateKey is used to generate a short lived token to submit a key
-	// for a given address. We use EC because it's shorter.
-	EmailTokenPrivateKey = mustReadECPrivateKeyFromPEM("keys/emailtoken.pem")
-)
+type privateKeyConf struct {
+	ServerPrivateECKey     string `toml:"server_ec_private_key"`
+	EmailTokenPrivateECKey string `toml:"email_token_ec_private_key"`
+	VufPrivateRsaKey       string `toml:"vuf_rsa_private_key"`
+}
 
 var (
 	// The signature failed to validate - likely wrong email.
@@ -130,6 +99,8 @@ var (
 
 	// The signature is too old
 	ErrTTLExpired = errors.New("ErrTTLExpired")
+
+	ErrInvalidKey = errors.New("ErrInvalidKey")
 )
 
 const (
@@ -137,7 +108,7 @@ const (
 )
 
 func SendMail(sender string, recipients []string, subject, body string, ctx context.Context) error {
-	sg := sendgrid.NewSendGridClientWithApiKey(SendGridEmailSecretKey)
+	sg := sendgrid.NewSendGridClientWithApiKey(config.SendGrid.SecretKey)
 	sg.Client = getHttpClientWithLongerDeadline(ctx)
 
 	message := sendgrid.NewMail()
@@ -201,84 +172,63 @@ type TokenData struct {
 	TTL int64 `json:"ttl"`
 }
 
-// mustReadRSAPrivateKeyFromPEM converts a file path that should be a PEM of type "PRIVATE KEY" to an
-// actual RSA private key. Panics on any error.
-func mustReadRSAPrivateKeyFromPEM(path string) *rsa.PrivateKey {
-	b, err := ioutil.ReadFile(path)
-	if err != nil {
-		panic(4)
-	}
+// mustReadRSAPrivateKeyFromPEM converts a string that should be a PEM of type "PRIVATE KEY" to an
+// actual RSA private key.
+func readRSAPrivateKeyFromPEM(s string) (*rsa.PrivateKey, error) {
 	var p *pem.Block
-	p, b = pem.Decode(b)
+	p, _ = pem.Decode([]byte(s))
 	if p == nil {
-		panic(4)
-	} else {
-		if strings.HasSuffix(p.Type, "PRIVATE KEY") {
-			key, err := x509.ParsePKCS8PrivateKey(p.Bytes)
-			if err != nil {
-				panic(1)
-			}
-			rv, ok := key.(*rsa.PrivateKey)
-			if !ok {
-				panic(2)
-			}
-			return rv
-		} else {
-			panic(5)
-		}
+		return nil, ErrInvalidKey
 	}
+
+	if !strings.HasSuffix(p.Type, "PRIVATE KEY") {
+		return nil, ErrInvalidKey
+	}
+
+	key, err := x509.ParsePKCS8PrivateKey(p.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	rv, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		return nil, ErrInvalidKey
+	}
+
+	return rv, nil
 }
 
-func mustCreateDERPublicKey(private *rsa.PrivateKey) []byte {
-	rv, err := x509.MarshalPKIXPublicKey(&private.PublicKey)
-	if err != nil {
-		panic(err)
-	}
-	return rv
-}
-
-func mustCreateDERPublicKeyFromEC(private *ecdsa.PrivateKey) []byte {
-	rv, err := x509.MarshalPKIXPublicKey(&private.PublicKey)
-	if err != nil {
-		panic(err)
-	}
-	return rv
-}
-
-// mustReadECPrivateKeyFromPEM converts a file path that should be a PEM of type "EC PRIVATE KEY" to an
-// actual RSA private key. Panics on any error.
-func mustReadECPrivateKeyFromPEM(path string) *ecdsa.PrivateKey {
-	b, err := ioutil.ReadFile(path)
-	if err != nil {
-		panic(4)
-	}
+// mustReadECPrivateKeyFromPEM converts a string that should be a PEM of type "EC PRIVATE KEY" to an
+// actual RSA private key.
+func readECPrivateKeyFromPEM(s string) (*ecdsa.PrivateKey, error) {
 	var p *pem.Block
-	p, b = pem.Decode(b)
+	p, _ = pem.Decode([]byte(s))
 	if p == nil {
-		panic(4)
-	} else {
-		if strings.HasSuffix(p.Type, "EC PRIVATE KEY") {
-			key, err := x509.ParseECPrivateKey(p.Bytes)
-			if err != nil {
-				panic(1)
-			}
-			return key
-		} else {
-			panic(5)
-		}
+		return nil, ErrInvalidKey
 	}
+
+	if !strings.HasSuffix(p.Type, "EC PRIVATE KEY") {
+		return nil, ErrInvalidKey
+	}
+
+	key, err := x509.ParseECPrivateKey(p.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return key, nil
 }
 
 func sendVUFPublicKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/binary")
 
-	writeAndSign(VUFPublicKey, w)
+	writeAndSign(vufPublicKeyBytes, w)
 }
 
 func sendServerPublicKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/binary")
 
-	writeAndSign(ServerPublicKey, w)
+	writeAndSign(serverPublicKeyBytes, w)
 }
 
 // handleError logs an error and sets an appropriate HTTP status code.
@@ -297,9 +247,12 @@ func getHttpClientWithLongerDeadline(ctx context.Context) *http.Client {
 
 // Returns a VerifiableMap object ready for manipulations
 func getMapObject(ctx context.Context) *continusec.VerifiableMap {
-	return continusec.NewClient(ContinusecAccount,
-		ContinusecSecretKey).WithHttpClient(
-		getHttpClientWithLongerDeadline(ctx)).VerifiableMap(ContinusecMap)
+	return (&continusec.Account{
+		Account: config.Continusec.Account,
+		Client: continusec.DefaultClient.
+			WithHttpClient(getHttpClientWithLongerDeadline(ctx)).
+			WithApiKey(config.Continusec.MutatingKey),
+	}).VerifiableMap(config.Continusec.Map)
 }
 
 // EmptyLeafHash is the leaf hash of an empty node, pre-calculated since used often.
@@ -527,7 +480,7 @@ func validateToken(email string, token []byte) error {
 		return err
 	}
 
-	if ecdsa.Verify(&EmailTokenPrivateKey.PublicKey, oh, sig.Signature.R, sig.Signature.S) {
+	if ecdsa.Verify(&emailTokenPrivateKey.PublicKey, oh, sig.Signature.R, sig.Signature.S) {
 		return nil
 	} else {
 		return ErrInvalidSig
@@ -567,7 +520,7 @@ func makeToken(email string, ttl time.Time) ([]byte, error) {
 		return nil, err
 	}
 
-	r, s, err := ecdsa.Sign(rand.Reader, EmailTokenPrivateKey, oh)
+	r, s, err := ecdsa.Sign(rand.Reader, emailTokenPrivateKey, oh)
 	if err != nil {
 		return nil, err
 	}
@@ -594,8 +547,18 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	tb64 := base64.StdEncoding.EncodeToString(token)
 
-	err = SendMail(EmailFromAddress, []string{username}, EmailSubject, fmt.Sprintf(EmailMessage,
-		tb64, username, tb64, username, username, username, tb64), appengine.NewContext(r))
+	message := &bytes.Buffer{}
+	err = emailTemplate.Execute(message, map[string]string{
+		"BasePath": config.Server.BasePath,
+		"Token":    tb64,
+		"Email":    username,
+	})
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+
+	err = SendMail(config.SendGrid.FromAddress, []string{username}, config.SendGrid.EmailSubject, string(message.Bytes()), appengine.NewContext(r))
 	if err != nil {
 		handleError(err, r, w)
 		return
@@ -615,7 +578,7 @@ func GetKeyForVUF(data []byte) []byte {
 // Calculated the VUF for a plaintext key
 func ApplyVUF(data []byte) ([]byte, error) {
 	hash := sha256.Sum256(data)
-	sig, err := rsa.SignPKCS1v15(rand.Reader, VUFPrivateKey, crypto.SHA256, hash[:])
+	sig, err := rsa.SignPKCS1v15(rand.Reader, vufPrivateKey, crypto.SHA256, hash[:])
 	if err != nil {
 		return nil, err
 	}
@@ -623,7 +586,7 @@ func ApplyVUF(data []byte) ([]byte, error) {
 }
 
 func writeAndSign(contents []byte, w http.ResponseWriter) error {
-	sig, err := ecSign(contents, ServerPrivateKey)
+	sig, err := ecSign(contents, serverPrivateKey)
 	if err != nil {
 		return err
 	}
@@ -637,13 +600,13 @@ func writeAndSign(contents []byte, w http.ResponseWriter) error {
 func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 	ctx := appengine.NewContext(r)
 
-	req, err := http.NewRequest("GET", "https://api.continusec.com/v1/account/"+ContinusecAccount+"/map/"+ContinusecMap+"/"+r.URL.Path[len(WrappedOp):], nil)
+	req, err := http.NewRequest("GET", "https://api.continusec.com/v1/account/"+config.Continusec.Account+"/map/"+config.Continusec.Map+"/"+r.URL.Path[len(WrappedOp):], nil)
 	log.Debugf(ctx, "%+v", req)
 	if err != nil {
 		handleError(err, r, w)
 		return
 	}
-	req.Header.Set("Authorization", "Key "+ContinusecPublicKey)
+	req.Header.Set("Authorization", "Key "+config.Continusec.LimitedReadOnlyKey)
 
 	resp, err := getHttpClientWithLongerDeadline(ctx).Do(req)
 	if err != nil {
@@ -669,7 +632,53 @@ func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+var (
+	config               tomlConfig
+	emailTemplate        *template.Template
+	emailTokenPrivateKey *ecdsa.PrivateKey
+	serverPrivateKey     *ecdsa.PrivateKey
+	vufPrivateKey        *rsa.PrivateKey
+
+	serverPublicKeyBytes []byte
+	vufPublicKeyBytes    []byte
+)
+
 func init() {
+	_, err := toml.DecodeFile("config.toml", &config)
+	if err != nil {
+		panic("invalid config file:" + err.Error())
+	}
+
+	emailTemplate, err = template.New("master").Parse(config.SendGrid.TokenTemplate)
+	if err != nil {
+		panic("invalid email template:" + err.Error())
+	}
+
+	emailTokenPrivateKey, err = readECPrivateKeyFromPEM(config.Crypto.EmailTokenPrivateECKey)
+	if err != nil {
+		panic("invalid email token key:" + err.Error())
+	}
+
+	serverPrivateKey, err = readECPrivateKeyFromPEM(config.Crypto.ServerPrivateECKey)
+	if err != nil {
+		panic("invalid server key:" + err.Error())
+	}
+
+	vufPrivateKey, err = readRSAPrivateKeyFromPEM(config.Crypto.VufPrivateRsaKey)
+	if err != nil {
+		panic("invalid vuf key:" + err.Error())
+	}
+
+	serverPublicKeyBytes, err = x509.MarshalPKIXPublicKey(&serverPrivateKey.PublicKey)
+	if err != nil {
+		panic("cannot serialize public key:" + err.Error())
+	}
+
+	vufPublicKeyBytes, err = x509.MarshalPKIXPublicKey(&vufPrivateKey.PublicKey)
+	if err != nil {
+		panic("cannot serialize public key:" + err.Error())
+	}
+
 	r := mux.NewRouter()
 
 	// Return the public key used for the VUF

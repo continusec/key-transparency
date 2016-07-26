@@ -24,13 +24,16 @@
 //     )
 //
 //     // Construct a client
-//     client := continusec.NewClient("<your account number>", "<your api key>")
+//     client := continusec.DefaultClient.WithApiKey("<your API key>")
 //
 //     // If on Google App Engine:
 //     client = client.WithHttpClient(urlfetch.Client(ctx))
 //
+//     // Get a pointer to your account
+//     account := &continusec.Account{Account: "<your account number>", Client: client}
+//
 //     // Get a pointer to a log
-//     log := client.VerifiableLog("testlog")
+//     log := account.VerifiableLog("testlog")
 //
 //     // Create a log (only do this once)
 //     err := log.Create()
@@ -53,7 +56,7 @@
 //     if err != nil { ... }
 //
 //     // Get a pointer to a map
-//     vmap := client.VerifiableMap("testmap")
+//     vmap := account.VerifiableMap("testmap")
 //
 //     // Create a map (only do this once)
 //     err := vmap.Create()
@@ -85,134 +88,72 @@ import (
 	"net/http"
 )
 
-// Client is the object that will be used to interact with the Continusec API.
-// Call NewClient to construct.
+// Client is the object that will be used to make requests to the Continusec API.
+// Normally DefaultClient is used, with modifications as shown below.
 type Client struct {
-	account    string
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
+	// The base URL to use for constructing requests.
+	BaseUrl string
+
+	// The client to use for sending requests.
+	HttpClient *http.Client
+
+	// If set, authorization header to add to each request
+	Authorization string
 }
 
-// NewClient returns a new client suitable to interact with the Continusec API.
-//
-// account, although accepted as a string, is usually the integer shown on your account
-// settings page.
-//
-// apiKey is the string configured on your API Access page, and may be left blank to access
-// any data that is publicly accessible.
-func NewClient(account string, apiKey string) *Client {
+// WithBaseUrl returns a new client with a different base Url.
+func (client *Client) WithBaseUrl(baseUrl string) *Client {
 	return &Client{
-		account:    account,
-		apiKey:     apiKey,
-		httpClient: http.DefaultClient,
-		baseURL:    "https://api.continusec.com",
+		BaseUrl:       baseUrl,
+		HttpClient:    client.HttpClient,
+		Authorization: client.Authorization,
 	}
 }
 
-// WithBaseURL modifies the client to point to a different base URL other than the
-// standard. This is typically only used for integration tests where you don't wish to
-// make live calls to the Continusec API server.
-//
-// The same client object is also returned for the convenience of the caller.
-func (self *Client) WithBaseURL(baseURL string) *Client {
-	self.baseURL = baseURL
-	return self
-}
-
-// WithHttpClient modifies the client to use a different http.Client than the default
-// (which is to use http.DefaultClient). This is useful for applications hosted on
-// Google App Engine that may wish to call: client.WithHttpClient(urlfetch.Client(ctx))
-//
-// The same client object is also returned for the convenience of the caller.
-func (self *Client) WithHttpClient(httpClient *http.Client) *Client {
-	self.httpClient = httpClient
-	return self
-}
-
-// VerifiableMap returns an object representing a Verifiable Map. This function simply
-// returns a pointer to an object that can be used to interact with the Map, and won't
-// by itself cause any API calls to be generated.
-func (self *Client) VerifiableMap(name string) *VerifiableMap {
-	return &VerifiableMap{
-		client: self,
-		path:   "/map/" + name,
+// WithHttpClient returns a new client with a different http client.
+// This is useful for applications hosted on  Google App Engine that may wish to call:
+// client.WithHttpClient(urlfetch.Client(ctx))
+func (client *Client) WithHttpClient(httpClient *http.Client) *Client {
+	return &Client{
+		BaseUrl:       client.BaseUrl,
+		HttpClient:    httpClient,
+		Authorization: client.Authorization,
 	}
 }
 
-// VerifiableLog returns an object representing a Verifiable Log. This function simply
-// returns a pointer to an object that can be used to interact with the Log, and won't
-// by itself cause any API calls to be generated.
-func (self *Client) VerifiableLog(name string) *VerifiableLog {
-	return &VerifiableLog{
-		client: self,
-		path:   "/log/" + name,
+// WithApiKey returns a new client with a specific API Key
+func (client *Client) WithApiKey(apiKey string) *Client {
+	return client.WithAuthorizationHeader("Key " + apiKey)
+}
+
+// WithAuthorizationHeader returns a new client with a different authorization header.
+func (client *Client) WithAuthorizationHeader(h string) *Client {
+	return &Client{
+		BaseUrl:       client.BaseUrl,
+		HttpClient:    client.HttpClient,
+		Authorization: h,
 	}
 }
 
-// LogInfo represents metadata about a log
-type LogInfo struct {
-	// Name is the name of the log
-	Name string `json:"name"`
+// WithChildPath returns a new client with a base URL (path is appended to existing base URL).
+func (client *Client) WithChildPath(path string) *Client {
+	return client.WithBaseUrl(client.BaseUrl + path)
 }
 
-type logListResponse struct {
-	Items []*LogInfo `json:"results"`
-}
-
-// MapInfo represents metadata about a map
-type MapInfo struct {
-	// Name is the name of the map
-	Name string `json:"name"`
-}
-
-type mapListResponse struct {
-	Items []*MapInfo `json:"results"`
-}
-
-// ListLogs returns a list of logs held by the account
-func (self *Client) ListLogs() ([]*LogInfo, error) {
-	contents, _, err := self.makeRequest("GET", "/logs", nil, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp logListResponse
-	err = json.Unmarshal(contents, &resp)
-	if err != nil {
-		return nil, err
-	}
-
-	return resp.Items, nil
-}
-
-// ListMaps returns a list of maps held by the account
-func (self *Client) ListMaps() ([]*MapInfo, error) {
-	contents, _, err := self.makeRequest("GET", "/maps", nil, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp mapListResponse
-	err = json.Unmarshal(contents, &resp)
-	if err != nil {
-		return nil, err
-	}
-
-	return resp.Items, nil
-}
-
-func (self *Client) makeRequest(method, path string, data []byte, headers [][2]string) ([]byte, http.Header, error) {
-	url := fmt.Sprintf("%s/v1/account/%s%s", self.baseURL, self.account, path)
-	req, err := http.NewRequest(method, url, bytes.NewReader(data))
+// Intended for internal use, MakeRequest makes an HTTP request and converts the error
+// code to those appropriate for the rest of the library.
+func (self *Client) MakeRequest(method, path string, data []byte, headers [][2]string) ([]byte, http.Header, error) {
+	req, err := http.NewRequest(method, self.BaseUrl+path, bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, err
 	}
-	req.Header.Set("Authorization", "Key "+self.apiKey)
+	if self.Authorization != "" {
+		req.Header.Set("Authorization", self.Authorization)
+	}
 	for _, h := range headers {
 		req.Header.Set(h[0], h[1])
 	}
-	resp, err := self.httpClient.Do(req)
+	resp, err := self.HttpClient.Do(req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -237,4 +178,95 @@ func (self *Client) makeRequest(method, path string, data []byte, headers [][2]s
 	default:
 		return nil, nil, ErrInternalError
 	}
+}
+
+var (
+	// DefaultClient uses the default base URL and default HttpClient.
+	DefaultClient = &Client{
+		BaseUrl:    "https://api.continusec.com/v1",
+		HttpClient: http.DefaultClient,
+	}
+)
+
+// Account is used to access your Continusec account. Leave APIKey empty to specify
+// that no authorization should be sent.
+type Account struct {
+	// Account although accepted as a string, is usually the integer shown on your account
+	// settings page.
+	Account string
+
+	// Client is the client to use for sending requests.
+	// Normally this is DefaultClient.WithApiKey("xxx") where
+	// xxx is an API Key created on your Access Rules page.
+	Client *Client
+}
+
+// VerifiableMap returns an object representing a Verifiable Map. This function simply
+// returns a pointer to an object that can be used to interact with the Map, and won't
+// by itself cause any API calls to be generated.
+func (self *Account) VerifiableMap(name string) *VerifiableMap {
+	return &VerifiableMap{
+		Client: self.Client.WithChildPath(fmt.Sprintf("/account/%s/map/%s", self.Account, name)),
+	}
+}
+
+// VerifiableLog returns an object representing a Verifiable Log. This function simply
+// returns a pointer to an object that can be used to interact with the Log, and won't
+// by itself cause any API calls to be generated.
+func (self *Account) VerifiableLog(name string) *VerifiableLog {
+	return &VerifiableLog{
+		Client: self.Client.WithChildPath(fmt.Sprintf("/account/%s/log/%s", self.Account, name)),
+	}
+}
+
+// LogInfo represents metadata about a log
+type LogInfo struct {
+	// Name is the name of the log
+	Name string `json:"name"`
+}
+
+type logListResponse struct {
+	Items []*LogInfo `json:"results"`
+}
+
+// MapInfo represents metadata about a map
+type MapInfo struct {
+	// Name is the name of the map
+	Name string `json:"name"`
+}
+
+type mapListResponse struct {
+	Items []*MapInfo `json:"results"`
+}
+
+// ListLogs returns a list of logs held by the account
+func (self *Account) ListLogs() ([]*LogInfo, error) {
+	contents, _, err := self.Client.MakeRequest("GET", fmt.Sprintf("/account/%s/logs", self.Account), nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp logListResponse
+	err = json.Unmarshal(contents, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Items, nil
+}
+
+// ListMaps returns a list of maps held by the account
+func (self *Account) ListMaps() ([]*MapInfo, error) {
+	contents, _, err := self.Client.MakeRequest("GET", fmt.Sprintf("/account/%s/maps", self.Account), nil, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp mapListResponse
+	err = json.Unmarshal(contents, &resp)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Items, nil
 }

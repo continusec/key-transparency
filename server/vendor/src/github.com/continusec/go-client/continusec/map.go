@@ -34,8 +34,7 @@ type mapHashResponse struct {
 // VerifiableMap is an object used to interact with Verifiable Maps. To construct this
 // object, call NewClient(...).VerifiableMap("mapname")
 type VerifiableMap struct {
-	client *Client
-	path   string
+	Client *Client
 }
 
 // MutationLog returns a pointer to the underlying Verifiable Log that represents
@@ -44,8 +43,7 @@ type VerifiableMap struct {
 // on the map), however all read-only functions are present.
 func (self *VerifiableMap) MutationLog() *VerifiableLog {
 	return &VerifiableLog{
-		client: self.client,
-		path:   self.path + "/log/mutation",
+		Client: self.Client.WithChildPath("/log/mutation"),
 	}
 }
 
@@ -54,15 +52,14 @@ func (self *VerifiableMap) MutationLog() *VerifiableLog {
 // the log returned cannot be directly added to however all read-only functions are present.
 func (self *VerifiableMap) TreeHeadLog() *VerifiableLog {
 	return &VerifiableLog{
-		client: self.client,
-		path:   self.path + "/log/treehead",
+		Client: self.Client.WithChildPath("/log/treehead"),
 	}
 }
 
 // Create will send an API call to create a new map with the name specified when the
 // VerifiableMap object was instantiated.
 func (self *VerifiableMap) Create() error {
-	_, _, err := self.client.makeRequest("PUT", self.path, nil, nil)
+	_, _, err := self.Client.MakeRequest("PUT", "", nil, nil)
 	if err != nil {
 		return err
 	}
@@ -72,7 +69,7 @@ func (self *VerifiableMap) Create() error {
 // Destroy will send an API call to delete this map - this operation removes it permanently,
 // and renders the name unusable again within the same account, so please use with caution.
 func (self *VerifiableMap) Destroy() error {
-	_, _, err := self.client.makeRequest("DELETE", self.path, nil, nil)
+	_, _, err := self.Client.MakeRequest("DELETE", "", nil, nil)
 	if err != nil {
 		return err
 	}
@@ -110,7 +107,7 @@ func parseHeadersForProof(headers http.Header) ([][]byte, error) {
 //
 // Clients normally instead call VerifiedGet() with a MapTreeHead returned by VerifiedLatestMapState as this will also perform verification of inclusion.
 func (self *VerifiableMap) Get(key []byte, treeSize int64, factory VerifiableEntryFactory) (*MapInclusionProof, error) {
-	value, headers, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d/key/h/%s%s", treeSize, hex.EncodeToString(key), factory.Format()), nil, nil)
+	value, headers, err := self.Client.MakeRequest("GET", fmt.Sprintf("/tree/%d/key/h/%s%s", treeSize, hex.EncodeToString(key), factory.Format()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +158,7 @@ func (self *VerifiableMap) Set(key []byte, value UploadableEntry) (*AddEntryResp
 	if err != nil {
 		return nil, err
 	}
-	contents, _, err := self.client.makeRequest("PUT", self.path+"/key/h/"+hex.EncodeToString(key)+value.Format(), data, nil)
+	contents, _, err := self.Client.MakeRequest("PUT", "/key/h/"+hex.EncodeToString(key)+value.Format(), data, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +184,7 @@ func (self *VerifiableMap) Update(key []byte, value UploadableEntry, previousLea
 		return nil, err
 	}
 
-	contents, _, err := self.client.makeRequest("PUT", self.path+"/key/h/"+hex.EncodeToString(key)+value.Format(), data, [][2]string{
+	contents, _, err := self.Client.MakeRequest("PUT", "/key/h/"+hex.EncodeToString(key)+value.Format(), data, [][2]string{
 		[2]string{"X-Previous-LeafHash", hex.EncodeToString(prevLF)},
 	})
 	if err != nil {
@@ -206,7 +203,7 @@ func (self *VerifiableMap) Update(key []byte, value UploadableEntry, previousLea
 // While this will return quickly, the change will be reflected asynchronously in the map.
 // Returns an AddEntryResponse which contains the leaf hash for the mutation log entry.
 func (self *VerifiableMap) Delete(key []byte) (*AddEntryResponse, error) {
-	contents, _, err := self.client.makeRequest("DELETE", self.path+"/key/h/"+hex.EncodeToString(key), nil, nil)
+	contents, _, err := self.Client.MakeRequest("DELETE", "/key/h/"+hex.EncodeToString(key), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +218,7 @@ func (self *VerifiableMap) Delete(key []byte) (*AddEntryResponse, error) {
 // TreeHead returns map root hash for the map at the given tree size. Specify continusec.Head
 // to receive a root hash for the latest tree size.
 func (self *VerifiableMap) TreeHead(treeSize int64) (*MapTreeHead, error) {
-	contents, _, err := self.client.makeRequest("GET", self.path+fmt.Sprintf("/tree/%d", treeSize), nil, nil)
+	contents, _, err := self.Client.MakeRequest("GET", fmt.Sprintf("/tree/%d", treeSize), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -317,19 +314,37 @@ func (self *VerifiableMap) VerifiedMapState(prev *MapTreeState, treeSize int64) 
 	}
 
 	// Get the latest tree head for the tree head log
-	var prevThlth *LogTreeHead
+	var prevThlth, thlth *LogTreeHead
 	if prev != nil {
 		prevThlth = &prev.TreeHeadLogTreeHead
 	}
-	thlth, err := self.TreeHeadLog().VerifiedLatestTreeHead(prevThlth)
-	if err != nil {
-		return nil, err
+
+	// Have we verified ourselves yet?
+	verifiedInTreeHeadLog := false
+
+	// If we already have a tree head that is the size of our map, then we
+	// probably don't need a new one, so try that first.
+	if prevThlth != nil && prevThlth.TreeSize >= mapHead.TreeSize() {
+		err = self.TreeHeadLog().VerifyInclusion(prevThlth, mapHead)
+		if err == nil {
+			verifiedInTreeHeadLog = true
+			thlth = prevThlth
+		} // but it's ok if we fail, since try again below
 	}
 
-	// And make sure we are in it
-	err = self.TreeHeadLog().VerifyInclusion(thlth, mapHead)
-	if err != nil {
-		return nil, err
+	// If we weren't able to take a short-cut above, go back to normal processing:
+	if !verifiedInTreeHeadLog {
+		// Get new tree head
+		thlth, err = self.TreeHeadLog().VerifiedLatestTreeHead(prevThlth)
+		if err != nil {
+			return nil, err
+		}
+
+		// And make sure we are in it
+		err = self.TreeHeadLog().VerifyInclusion(thlth, mapHead)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// All good

@@ -2,9 +2,15 @@
 	"version": 0,
 	"dependencies": [
 		{
+			"importpath": "github.com/BurntSushi/toml",
+			"repository": "https://github.com/BurntSushi/toml",
+			"revision": "99064174e013895bbd9b025c31100bd1d9b590ca",
+			"branch": "master"
+		},
+		{
 			"importpath": "github.com/continusec/go-client/continusec",
 			"repository": "https://github.com/continusec/go-client",
-			"revision": "840c72b3b6d32c5991852af7eed2f62b70f77aff",
+			"revision": "e3db36c067c888b1d4a3885fcc7244542460fdf9",
 			"branch": "master",
 			"path": "/continusec"
 		},
@@ -17,7 +23,7 @@
 		{
 			"importpath": "github.com/golang/protobuf/proto",
 			"repository": "https://github.com/golang/protobuf",
-			"revision": "0c1f6d65b5a189c2250d10e71a5506f06f9fa0a0",
+			"revision": "874264fbbb43f4d91e999fecb4b40143ed611400",
 			"branch": "master",
 			"path": "/proto"
 		},
@@ -30,13 +36,13 @@
 		{
 			"importpath": "github.com/gorilla/mux",
 			"repository": "https://github.com/gorilla/mux",
-			"revision": "9fa818a44c2bf1396a17f9d5a3c0f6dd39d2ff8e",
+			"revision": "d391bea3118c9fc17a88d62c9189bb791255e0ef",
 			"branch": "master"
 		},
 		{
 			"importpath": "github.com/sendgrid/rest",
 			"repository": "https://github.com/sendgrid/rest",
-			"revision": "68c6f5a8279e048ee0f591ffc102af6a08ed7767",
+			"revision": "2eefcc3c15fec755eadc793ec2de0214fe858ee9",
 			"branch": "master"
 		},
 		{

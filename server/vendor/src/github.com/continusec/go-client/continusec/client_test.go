@@ -35,29 +35,30 @@ func TestStuff(t *testing.T) {
 		Dir:           "testdata",
 		FailOnMissing: true,
 	})
+	localClient := DefaultClient.WithBaseUrl("http://localhost:8080/v1")
 
-	client := NewClient("7981306761429961588", "c9fc80d4e19ddbf01a4e6b5277a29e1bffa88fe047af9d0b9b36de536f85c2c6").WithBaseURL("http://localhost:8080")
+	client := &Account{Account: "7981306761429961588", Client: localClient.WithApiKey("c9fc80d4e19ddbf01a4e6b5277a29e1bffa88fe047af9d0b9b36de536f85c2c6")}
 	log := client.VerifiableLog("newtestlog")
 	_, err := log.TreeHead(Head)
 	if err != ErrNotFound {
 		t.Fatal(err)
 	}
 
-	client = NewClient("7981306761429961588", "wrongcred").WithBaseURL("http://localhost:8080")
+	client = &Account{Account: "7981306761429961588", Client: localClient.WithApiKey("wrongcred")}
 	log = client.VerifiableLog("newtestlog")
 	_, err = log.TreeHead(Head)
 	if err != ErrNotAuthorized {
 		t.Fatal(err)
 	}
 
-	client = NewClient("wrongaccount", "wrongcred").WithBaseURL("http://localhost:8080")
+	client = &Account{Account: "wrongaccount", Client: localClient.WithApiKey("wrongcred")}
 	log = client.VerifiableLog("newtestlog")
 	_, err = log.TreeHead(Head)
 	if err != ErrNotFound {
 		t.Fatal(err)
 	}
 
-	client = NewClient("7981306761429961588", "c9fc80d4e19ddbf01a4e6b5277a29e1bffa88fe047af9d0b9b36de536f85c2c6").WithBaseURL("http://localhost:8080")
+	client = &Account{Account: "7981306761429961588", Client: localClient.WithApiKey("c9fc80d4e19ddbf01a4e6b5277a29e1bffa88fe047af9d0b9b36de536f85c2c6")}
 	log = client.VerifiableLog("newtestlog")
 	err = log.Create()
 	if err != nil {
@@ -175,7 +176,7 @@ func TestStuff(t *testing.T) {
 	ctx := context.TODO()
 
 	count := 0
-	err = log.VerifyEntries(ctx, nil, head103, RawDataEntryFactory, func(idx int64, entry VerifiableEntry) error {
+	err = log.VerifyEntries(ctx, nil, head103, RawDataEntryFactory, func(ctx context.Context, idx int64, entry VerifiableEntry) error {
 		_, err := entry.Data()
 		if err != nil {
 			return err
@@ -197,7 +198,7 @@ func TestStuff(t *testing.T) {
 	}
 
 	count = 0
-	err = log.VerifyEntries(ctx, head1, head103, JsonEntryFactory, func(idx int64, entry VerifiableEntry) error {
+	err = log.VerifyEntries(ctx, head1, head103, JsonEntryFactory, func(ctx context.Context, idx int64, entry VerifiableEntry) error {
 		_, err := entry.Data()
 		if err != nil {
 			return err
@@ -218,7 +219,7 @@ func TestStuff(t *testing.T) {
 	}
 
 	count = 0
-	err = log.VerifyEntries(ctx, head1, head3, JsonEntryFactory, func(idx int64, entry VerifiableEntry) error {
+	err = log.VerifyEntries(ctx, head1, head3, JsonEntryFactory, func(ctx context.Context, idx int64, entry VerifiableEntry) error {
 		_, err := entry.Data()
 		if err != nil {
 			return err
@@ -234,7 +235,7 @@ func TestStuff(t *testing.T) {
 	}
 
 	count = 0
-	err = log.VerifyEntries(ctx, head50, head103, RawDataEntryFactory, func(idx int64, entry VerifiableEntry) error {
+	err = log.VerifyEntries(ctx, head50, head103, RawDataEntryFactory, func(ctx context.Context, idx int64, entry VerifiableEntry) error {
 		_, err := entry.Data()
 		if err != nil {
 			return err
@@ -277,7 +278,7 @@ func TestStuff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client = NewClient("7981306761429961588", "allseeing").WithBaseURL("http://localhost:8080")
+	client = &Account{Account: "7981306761429961588", Client: localClient.WithApiKey("allseeing")}
 	log = client.VerifiableLog("newtestlog")
 
 	redEnt, err = log.Entry(2, RedactedJsonEntryFactory)
@@ -496,7 +497,7 @@ func TestStuff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client = NewClient("7981306761429961588", "c9fc80d4e19ddbf01a4e6b5277a29e1bffa88fe047af9d0b9b36de536f85c2c6").WithBaseURL("http://localhost:8080")
+	client = &Account{Account: "7981306761429961588", Client: localClient.WithApiKey("c9fc80d4e19ddbf01a4e6b5277a29e1bffa88fe047af9d0b9b36de536f85c2c6")}
 	vmap = client.VerifiableMap("mapjson")
 	ms3, err := vmap.VerifiedLatestMapState(nil)
 	if err != nil {
@@ -519,7 +520,7 @@ func TestStuff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client = NewClient("7981306761429961588", "redacted").WithBaseURL("http://localhost:8080")
+	client = &Account{Account: "7981306761429961588", Client: localClient.WithApiKey("redacted")}
 	vmap = client.VerifiableMap("mapjson")
 	ms3, err = vmap.VerifiedLatestMapState(nil)
 	if err != nil {
@@ -542,7 +543,7 @@ func TestStuff(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client = NewClient("7981306761429961588", "testupdate").WithBaseURL("http://localhost:8080")
+	client = &Account{Account: "7981306761429961588", Client: localClient.WithApiKey("testupdate")}
 	vmap = client.VerifiableMap("loadtestmap2")
 	_, err = vmap.Update([]byte("fooyo"), &RawDataEntry{RawBytes: []byte("bar")}, &RawDataEntry{})
 	if err != nil {
