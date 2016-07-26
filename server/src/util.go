@@ -25,16 +25,13 @@ import (
 	"encoding/asn1"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"math/big"
 	"net/http"
-	"time"
 
 	"github.com/continusec/go-client/continusec"
 
 	"golang.org/x/net/context"
-	"google.golang.org/appengine"
-	"google.golang.org/appengine/log"
-	"google.golang.org/appengine/urlfetch"
 )
 
 // PublicKeyData is the data stored for a map key in the Verifiable Map
@@ -106,16 +103,9 @@ var (
 func handleError(err error, r *http.Request, w http.ResponseWriter) {
 	switch err { // TODO: handle better
 	default:
-		log.Errorf(appengine.NewContext(r), "Error: %v", err)
+		logError(getContext(r), fmt.Sprintf("Error: %v", err))
 		w.WriteHeader(500)
 	}
-}
-
-// The default HttpClient on Google App Engine appears to have a 5 second timeout,
-// this creates a client with a longer timeout.
-func getHttpClientWithLongerDeadline(ctx context.Context) *http.Client {
-	cctx, _ := context.WithDeadline(ctx, time.Now().Add(30*time.Second))
-	return urlfetch.Client(cctx)
 }
 
 // Sign data using a private key and return an ASN1 serialized signature.
@@ -151,7 +141,7 @@ func getMapObject(ctx context.Context) *continusec.VerifiableMap {
 	return (&continusec.Account{
 		Account: config.Continusec.Account,
 		Client: continusec.DefaultClient.
-			WithHttpClient(getHttpClientWithLongerDeadline(ctx)).
+			WithHttpClient(getHttpClient(ctx)).
 			WithApiKey(config.Continusec.MutatingKey),
 	}).VerifiableMap(config.Continusec.Map)
 }

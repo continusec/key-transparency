@@ -1,6 +1,7 @@
 [server]
 base_path = "https://continusec-key-server.appspot.com"
-disable_authentication = true
+disable_authentication = false
+hosted_in_app_engine = false
 
 [continusec]
 account = "606281927392511840"

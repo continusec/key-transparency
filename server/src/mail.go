@@ -26,7 +26,7 @@ import (
 // at time of writing. Newer versions are not currently compatible with Google App Engine.
 func sendMail(ctx context.Context, sender string, recipients []string, subject, body string) error {
 	sg := sendgrid.NewSendGridClientWithApiKey(config.SendGrid.SecretKey)
-	sg.Client = getHttpClientWithLongerDeadline(ctx)
+	sg.Client = getHttpClient(ctx)
 
 	message := sendgrid.NewMail()
 	for _, recip := range recipients {

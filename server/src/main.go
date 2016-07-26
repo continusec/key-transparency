@@ -17,6 +17,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -58,4 +59,13 @@ func init() {
 	r.HandleFunc(WrappedOp+"{wrappedOp:.*}", handleWrappedOperation).Methods("GET")
 
 	http.Handle("/", r)
+}
+
+// Main method included so that this can be run without Google App Engine if desired.
+// e.g.
+// cd server/src
+// GOPATH=$PWD/../vendor:$PWD go run *.go
+func main() {
+	fmt.Println("Serving...")
+	http.ListenAndServe(":8080", nil)
 }

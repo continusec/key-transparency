@@ -46,6 +46,11 @@ type serverConf struct {
 	// key for a user, meaning you don't need to email a token first. This can
 	// be useful during testing or bulk import on a private server
 	DisableAuthentication bool `toml:"disable_authentication"`
+
+	// If set to true, then we are hosted in Google App Engine. Since our server code
+	// is stateless, this makes little difference, but we do need a few changes in
+	// environment.go if this is true.
+	HostedInGAE bool `toml:"hosted_in_app_engine"`
 }
 
 type continusecConf struct {

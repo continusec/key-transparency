@@ -27,7 +27,6 @@ import (
 
 	"github.com/continusec/go-client/continusec"
 	"github.com/gorilla/mux"
-	"google.golang.org/appengine"
 )
 
 // Handle request to send a new token to a given address.
@@ -62,7 +61,7 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = sendMail(appengine.NewContext(r), config.SendGrid.FromAddress, []string{username}, config.SendGrid.EmailSubject, string(message.Bytes()))
+	err = sendMail(getContext(r), config.SendGrid.FromAddress, []string{username}, config.SendGrid.EmailSubject, string(message.Bytes()))
 	if err != nil {
 		handleError(err, r, w)
 		return
@@ -127,8 +126,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load up the Map
-	ctx := appengine.NewContext(r)
-	vmap := getMapObject(ctx)
+	vmap := getMapObject(getContext(r))
 
 	// Next sequence
 	nextSequence := int64(0) // unless advised otherwise
@@ -232,8 +230,7 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load up the Map
-	ctx := appengine.NewContext(r)
-	vmap := getMapObject(ctx)
+	vmap := getMapObject(getContext(r))
 
 	// Get the current value - deliberate pick JSON Entry Factory since we want to return raw
 	curVal, err := vmap.Get(GetKeyForVUF(vufResult), ts, continusec.JsonEntryFactory)
@@ -274,8 +271,6 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 // Proxy read-only requests to the underlying map/log structures.
 // This uses the LimitedReadOnlyKey which should be configured to allow minimal access.
 func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
-	ctx := appengine.NewContext(r)
-
 	req, err := http.NewRequest("GET", "https://api.continusec.com/v1/account/"+config.Continusec.Account+"/map/"+config.Continusec.Map+"/"+r.URL.Path[len(WrappedOp):], nil)
 	if err != nil {
 		handleError(err, r, w)
@@ -283,7 +278,7 @@ func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("Authorization", "Key "+config.Continusec.LimitedReadOnlyKey)
 
-	resp, err := getHttpClientWithLongerDeadline(ctx).Do(req)
+	resp, err := getHttpClient(getContext(r)).Do(req)
 	if err != nil {
 		handleError(err, r, w)
 		return
