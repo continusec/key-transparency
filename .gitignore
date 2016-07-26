@@ -1,2 +1,4 @@
 client/bin/
 client/pkg/
+server/cksserver
+server/src/config.toml # don't want to commit private keys for demo server by accident
