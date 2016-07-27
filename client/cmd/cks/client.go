@@ -51,7 +51,7 @@ func main() {
 		},
 		{
 			Name:      "update",
-			Usage:     "Update to latest version of the tree",
+			Usage:     "Update to latest version of the tree, pulls new keys for all followed users",
 			Action:    stdCmd(updateTree),
 			ArgsUsage: "[optional sequence number to pull to, defaults to latest]",
 		},
@@ -74,15 +74,34 @@ func main() {
 			ArgsUsage: "[email address for key] [path to public key, or - for stdin] [token received via email]",
 		},
 		{
-			Name:      "log",
-			Usage:     "List updates that have been sent from this client",
-			Action:    stdCmd(listUpdates),
-			ArgsUsage: "[email address to list updates for, or no args for all]",
+			Name:   "log",
+			Usage:  "List updates that have been sent from this client",
+			Action: stdCmd(listUpdates),
 		},
-		
-		
-		
-
+		{
+			Name:      "unfollow",
+			Usage:     "Drop user that we were interested in",
+			Action:    stdCmd(unfollowUser),
+			ArgsUsage: "[at least one email address for user we no longer care about]",
+		},
+		{
+			Name:      "follow",
+			Usage:     "Add user that we are interested in",
+			Action:    stdCmd(followUser),
+			ArgsUsage: "[at least one email address for user we care about]",
+		},
+		{
+			Name:      "history",
+			Usage:     "Show history for keys for one or more users",
+			Action:    stdCmd(historyForUser),
+			ArgsUsage: "[at least one email address for user we care about]",
+		},
+		{
+			Name:      "export",
+			Usage:     "Export public key for one or more users",
+			Action:    stdCmd(exportUser),
+			ArgsUsage: "[at least one email address for user we care about]",
+		},
 		{
 			Name:   "conf",
 			Usage:  "Display server configuration",
@@ -94,26 +113,25 @@ func main() {
 			Action: stdCmd(showCache),
 		},
 		{
-			Name:      "follow",
-			Usage:     "Add user that we are interested in",
-			Action:    stdCmd(followUser),
-			ArgsUsage: "[email address for user we care about]",
-		},
-		{
 			Name:   "list",
 			Usage:  "List state of users we care about",
 			Action: stdCmd(listUsers),
 		},
 		{
-			Name:      "unfollow",
-			Usage:     "Drop user that we were interested in",
-			Action:    stdCmd(unfollowUser),
-			ArgsUsage: "[email address for user we no longer care about]",
-		},
-		{
 			Name:   "audit",
 			Usage:  "Audit full map",
 			Action: stdCmd(audit),
+			Flags: []cli.Flag{
+				cli.BoolFlag{
+					Name:  "yes",
+					Usage: "Bypass confirmation prompts",
+				},
+			},
+		},
+		{
+			Name:   "verify",
+			Usage:  "Verify gossip produced by someone else",
+			Action: stdCmd(verifyGossip),
 		},
 	}
 

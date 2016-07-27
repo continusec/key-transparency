@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
@@ -50,7 +51,7 @@ func showGossip(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	fmt.Print(string(buffer.Bytes()))
+	fmt.Println(base64.StdEncoding.EncodeToString(buffer.Bytes()))
 
 	return nil
 }
@@ -72,7 +73,7 @@ func updateTree(db *bolt.DB, c *cli.Context) error {
 
 	mapState, err := getCurrentHead("head")
 	if err != nil {
-		return handleError(err)
+		return err
 	}
 
 	vmap, err := getMap()
@@ -84,13 +85,19 @@ func updateTree(db *bolt.DB, c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// check for any pending updates
 	err = checkUpdateListForNewness(db, newMapState)
 	if err != nil {
 		return err
 	}
-	
+
+	// update any keys we watch
+	err = updateKeysToMapState(db, newMapState)
+	if err != nil {
+		return err
+	}
+
 	err = setCurrentHead("head", newMapState)
 	if err != nil {
 		return err

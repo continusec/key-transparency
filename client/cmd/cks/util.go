@@ -82,6 +82,18 @@ func (self *CachingVerifyingRT) getRespFromCache(key string) *http.Response {
 	}
 }
 
+func getPubKey(db *bolt.DB) ([]byte, error) {
+	var pubKey []byte
+	err := db.View(func(tx *bolt.Tx) error {
+		pubKey = tx.Bucket([]byte("conf")).Get([]byte("serverKey"))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pubKey, nil
+}
+
 // Only does GETs. Special cases certain GETS, like to /tree/0
 func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Method != http.MethodGet {
@@ -101,12 +113,13 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 	default: // cache!
 		r2 := self.getRespFromCache(key)
 		if r2 != nil {
+			//fmt.Fprintf(os.Stderr, "Cache hit: %s\n", key)
 			return r2, nil
 		}
 	}
 
 	// Otherwise, go out and fetch
-	fmt.Printf("Fetching: %s\n", key)
+	fmt.Fprintf(os.Stderr, "Fetching: %s\n", key)
 
 	resp, err := http.DefaultTransport.RoundTrip(r)
 	if err != nil {
@@ -135,10 +148,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 	if strings.HasSuffix(key, "/v1/config/serverPublicKey") {
 		pubKey = contents
 	} else {
-		err = self.DB.View(func(tx *bolt.Tx) error {
-			pubKey = tx.Bucket([]byte("conf")).Get([]byte("serverKey"))
-			return nil
-		})
+		pubKey, err = getPubKey(self.DB)
 		if err != nil {
 			return nil, err
 		}

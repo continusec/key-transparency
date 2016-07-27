@@ -6,9 +6,12 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/binary"
+	"encoding/base64"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -52,6 +55,15 @@ type PublicKeyData struct {
 	PGPPublicKey []byte `json:"pgpPublicKey"`
 }
 
+var (
+	ErrWrongSequence = errors.New("ErrWrongSequence")
+)
+
+type FollowedUserRecord struct {
+	MapSize int64
+	KeyData *PublicKeyData
+}
+
 // Verify that this result is included in the given map state
 func (ger *GetEntryResult) VerifyInclusion(ms *continusec.MapTreeState) error {
 	x := sha256.Sum256(ger.VUFResult)
@@ -79,7 +91,7 @@ func getVerifiedValueForMapState(key string, ms *continusec.MapTreeState) (*Publ
 		return nil, err
 	}
 
-	if len(res.PublicKeyValue) == 0 {
+	if len(res.PublicKeyValue) == 0 { // it's ok to get an empty result
 		return nil, nil
 	} else {
 		pkv := &continusec.RedactedJsonEntry{RedactedJsonBytes: res.PublicKeyValue}
@@ -94,60 +106,45 @@ func getVerifiedValueForMapState(key string, ms *continusec.MapTreeState) (*Publ
 			return nil, err
 		}
 
+		if pkd.Email != key {
+			return nil, ErrUnexpectedEmail
+		}
+
 		return &pkd, nil
 	}
 }
 
-func updateKeyToMapState(key string, ms *continusec.MapTreeState) error {
-	pkd, err := getVerifiedValueForMapState(key, ms)
+func updateKeyToMapState(db *bolt.DB, emailAddress string, ms *continusec.MapTreeState) error {
+	pkd, err := getVerifiedValueForMapState(emailAddress, ms)
 	if err != nil {
 		return err
 	}
-
-	if pkd == nil {
-		return nil
-	}
-
-	// this should always be true, but including to prevent loops
-	if pkd.PriorTreeSize > 0 && pkd.PriorTreeSize < ms.TreeSize() {
-		vmap, err := getMap()
-		if err != nil {
-			return err
-		}
-		nextMapState, err := vmap.VerifiedMapState(ms, pkd.PriorTreeSize)
-		if err != nil {
-			return err
-		}
-		err = updateKeyToMapState(key, nextMapState)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func updateKeysToMapState(db *bolt.DB, ms *continusec.MapTreeState) error {
-	kvs := make([][2][]byte, 0)
-	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("keys"))
-		err := b.ForEach(func(k, v []byte) error {
-			kvs = append(kvs, [2][]byte{copySlice(k), copySlice(v)})
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		return nil
+	buffer := &bytes.Buffer{}
+	err = gob.NewEncoder(buffer).Encode(&FollowedUserRecord{
+		MapSize: ms.TreeSize(),
+		KeyData: pkd,
 	})
 	if err != nil {
 		return err
 	}
-	for _, kv := range kvs {
-		k := kv[0]
-		email := string(k)
+	return db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("keys")).Put([]byte(emailAddress), buffer.Bytes())
+	})
+}
 
-		err = updateKeyToMapState(email, ms)
+func updateKeysToMapState(db *bolt.DB, ms *continusec.MapTreeState) error {
+	kvs := make([]string, 0)
+	err := db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("keys")).ForEach(func(k, v []byte) error {
+			kvs = append(kvs, string(k))
+			return nil
+		})
+	})
+	if err != nil {
+		return err
+	}
+	for _, email := range kvs {
+		err = updateKeyToMapState(db, email, ms)
 		if err != nil {
 			return err
 		}
@@ -173,17 +170,37 @@ func listUsers(db *bolt.DB, c *cli.Context) error {
 	}
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Email", "Last updated size"})
+	table.SetHeader([]string{"Email", "Value Hash", "User Sequence", "Last Updated"})
 
 	for _, kv := range kvs {
 		k, v := kv[0], kv[1]
 
-		lastSeq := int64(binary.BigEndian.Uint64(v))
 		email := string(k)
+		var fur FollowedUserRecord
+		err = gob.NewDecoder(bytes.NewReader(v)).Decode(&fur)
+		if err != nil {
+			return err
+		}
+
+		seq := "No key found"
+		valS := "(none)"
+
+		if fur.KeyData != nil {
+			seq = strconv.Itoa(int(fur.KeyData.Sequence))
+			vh := sha256.Sum256(fur.KeyData.PGPPublicKey)
+			valS = base64.StdEncoding.EncodeToString(vh[:])
+		}
+
+		lastUp := "Never"
+		if fur.MapSize > 0 {
+			lastUp = strconv.Itoa(int(fur.MapSize))
+		}
 
 		table.Append([]string{
 			email,
-			strconv.Itoa(int(lastSeq)),
+			valS,
+			seq,
+			lastUp,
 		})
 	}
 
@@ -193,69 +210,217 @@ func listUsers(db *bolt.DB, c *cli.Context) error {
 
 }
 
-func followUser(db *bolt.DB, c *cli.Context) error {
-	if c.NArg() != 1 {
-		return cli.NewExitError("exactly one email address must be specified", 1)
-	}
-	emailAddress := c.Args().Get(0)
-
-	if strings.Index(emailAddress, "@") == -1 {
-		return cli.NewExitError("email address not recognized", 4)
+func getHistoryForUser(emailAddress string, seqToStopAt int64, mapState *continusec.MapTreeState) ([]*FollowedUserRecord, error) {
+	vmap, err := getMap()
+	if err != nil {
+		return nil, err
 	}
 
-	err := db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("keys"))
-		k := []byte(emailAddress)
-		v := b.Get(k)
-		if v == nil {
-			k2 := make([]byte, 8)
-			binary.BigEndian.PutUint64(k2, 0)
-			err := b.Put(k, k2[:])
+	rv := make([]*FollowedUserRecord, 0)
+
+	done := false
+	expectedSeq := int64(-10)
+	for !done {
+		pkd, err := getVerifiedValueForMapState(emailAddress, mapState)
+		if err != nil {
+			return nil, err
+		}
+		if pkd == nil {
+			if expectedSeq >= 0 {
+				return nil, ErrWrongSequence
+			}
+			done = true
+		} else {
+			if expectedSeq != -10 {
+				if pkd.Sequence != expectedSeq {
+					return nil, ErrWrongSequence
+				}
+			}
+			expectedSeq = pkd.Sequence - 1
+			if expectedSeq < -1 {
+				return nil, ErrWrongSequence
+			}
+
+			rv = append(rv, &FollowedUserRecord{
+				KeyData: pkd,
+				MapSize: mapState.TreeSize(),
+			})
+
+			if pkd.PriorTreeSize == 0 {
+				done = true
+			} else {
+				if pkd.Sequence <= seqToStopAt {
+					done = true
+				} else {
+					mapState, err = vmap.VerifiedMapState(mapState, pkd.PriorTreeSize)
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+	}
+
+	return rv, nil
+}
+
+func exportUser(db *bolt.DB, c *cli.Context) error {
+	if c.NArg() == 0 {
+		return cli.NewExitError("at least one email address must be specified", 1)
+	}
+	for _, emailAddress := range c.Args() {
+		if strings.Index(emailAddress, "@") == -1 {
+			return cli.NewExitError("email address not recognized", 4)
+		}
+
+		desiredSequence := int64(math.MaxInt64)
+		spl := strings.Split(emailAddress, "/")
+		haveSeq := false
+		switch len(spl) {
+		case 1:
+			// pass, all good
+		case 2:
+			x, err := strconv.Atoi(spl[1])
 			if err != nil {
 				return err
 			}
+			desiredSequence = int64(x)
+			emailAddress = spl[0]
+			haveSeq = true
+		default:
+			return cli.NewExitError("email address not recognized", 5)
 		}
 
-		return nil
-	})
-	if err != nil {
-		return err
+		mapState, err := getCurrentHead("head")
+		if err != nil {
+			return err
+		}
+
+		furs, err := getHistoryForUser(emailAddress, desiredSequence, mapState)
+		if err != nil {
+			return err
+		}
+
+		if len(furs) > 0 {
+			if haveSeq {
+				if furs[len(furs)-1].KeyData.Sequence != desiredSequence {
+					return ErrWrongSequence
+				}
+			}
+			os.Stdout.Write(furs[len(furs)-1].KeyData.PGPPublicKey)
+		}
+	}
+	return nil
+}
+
+func historyForUser(db *bolt.DB, c *cli.Context) error {
+	if c.NArg() == 0 {
+		return cli.NewExitError("at least one email address must be specified", 1)
+	}
+	for _, emailAddress := range c.Args() {
+		if strings.Index(emailAddress, "@") == -1 {
+			return cli.NewExitError("email address not recognized", 4)
+		}
+
+		mapState, err := getCurrentHead("head")
+		if err != nil {
+			return err
+		}
+
+		furs, err := getHistoryForUser(emailAddress, -1, mapState)
+		if err != nil {
+			return err
+		}
+
+		table := tablewriter.NewWriter(os.Stdout)
+		table.SetHeader([]string{"Email", "Value Hash", "User Sequence", "Map Size Retrieved At"})
+
+		for _, fur := range furs {
+			vh := sha256.Sum256(fur.KeyData.PGPPublicKey)
+			table.Append([]string{
+				emailAddress,
+				base64.StdEncoding.EncodeToString(vh[:]),
+				strconv.Itoa(int(fur.KeyData.Sequence)),
+				strconv.Itoa(int(fur.MapSize)),
+			})
+		}
+
+		table.Render()
+	}
+	return nil
+}
+
+func followUser(db *bolt.DB, c *cli.Context) error {
+	if c.NArg() == 0 {
+		return cli.NewExitError("at least one email address must be specified", 1)
+	}
+	for _, emailAddress := range c.Args() {
+		if strings.Index(emailAddress, "@") == -1 {
+			return cli.NewExitError("email address not recognized", 4)
+		}
+
+		err := db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte("keys"))
+			k := []byte(emailAddress)
+			v := b.Get(k)
+
+			if len(v) == 0 {
+				buffer := &bytes.Buffer{}
+
+				err := gob.NewEncoder(buffer).Encode(&FollowedUserRecord{})
+				if err != nil {
+					return err
+				}
+
+				err = b.Put(k, buffer.Bytes())
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Following %s.\n", emailAddress)
 	}
 	return nil
 }
 
 func unfollowUser(db *bolt.DB, c *cli.Context) error {
-	if c.NArg() != 1 {
-		return cli.NewExitError("exactly one email address must be specified", 1)
+	if c.NArg() == 0 {
+		return cli.NewExitError("at least one email address must be specified", 1)
 	}
-	emailAddress := c.Args().Get(0)
-
-	if strings.Index(emailAddress, "@") == -1 {
-		return cli.NewExitError("email address not recognized", 4)
-	}
-
-	err := db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("keys"))
-		k := []byte(emailAddress)
-		v := b.Get(k)
-		if v != nil {
-			err := b.Delete(k)
-			if err != nil {
-				return err
-			}
+	for _, emailAddress := range c.Args() {
+		if strings.Index(emailAddress, "@") == -1 {
+			return cli.NewExitError("email address not recognized", 4)
 		}
 
-		return nil
-	})
-	if err != nil {
-		return err
-	}
+		err := db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket([]byte("keys"))
+			k := []byte(emailAddress)
+			v := b.Get(k)
+			if len(v) != 0 {
+				err := b.Delete(k)
+				if err != nil {
+					return err
+				}
+			}
 
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("No longer following %s.\n", emailAddress)
+	}
 	return nil
 }
 
 var (
 	ErrUnexpectedKeyFormat = errors.New("ErrUnexpectedKeyFormat")
+	ErrUnexpectedEmail     = errors.New("ErrUnexpectedEmail")
 )
 
 func validateVufResult(email string, vufResult []byte) error {

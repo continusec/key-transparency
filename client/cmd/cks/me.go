@@ -136,45 +136,14 @@ func checkUpdateListForNewness(db *bolt.DB, ms *continusec.MapTreeState) error {
 	return nil
 }
 
-
 func listUpdates(db *bolt.DB, c *cli.Context) error {
-	var emailAddress string
-
-	switch c.NArg() {
-	case 0:
-		// ignore
-	case 1:
-		emailAddress = c.Args().Get(0)
-	default:
-		return cli.NewExitError("incorrect number of arguments. see help", 1)
-	}
-
 	results := make([][2][]byte, 0)
-	gotOne := func(b *bolt.Bucket, k, v []byte) error {
+	gotOne := func(k, v []byte) error {
 		results = append(results, [2][]byte{copySlice(k), copySlice(v)})
 		return nil
 	}
 	err := db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("updates"))
-		if len(emailAddress) == 0 {
-			b.ForEach(func(k, v []byte) error { return gotOne(b, k, v) })
-		} else {
-			eh := sha256.Sum256([]byte(emailAddress))
-			c := b.Cursor()
-			k, v := c.Seek(eh[:])
-			for k != nil {
-				if !bytes.Equal(eh[:], k[:len(eh)]) {
-					return nil
-				}
-				err := gotOne(b, k, v)
-				if err != nil {
-					return err
-				}
-				k, v = c.Next()
-			}
-		}
-
-		return nil
+		return tx.Bucket([]byte("updates")).ForEach(func(k, v []byte) error { return gotOne(k, v) })
 	})
 	if err != nil {
 		return err

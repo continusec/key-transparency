@@ -1,10 +1,14 @@
 # Continusec Key Server Client
 
-This directory contains a client for the Continusec Key Server.
+This directory contains a client for the Continusec Key Server. See <https://github.com/continusec/key-transparency> for the source code for the server component.
+
+## License
+
+The Continusec Key Server Client is distributed under the Apache 2 License.
 
 ## Installation
 
-The client is written in Go, please begin by installing the Go compiler from: <https://golang.org/doc/install>.
+The client is written in Go, begin by installing the Go compiler from: <https://golang.org/doc/install>.
 
 Once installed, install the client:
 
@@ -132,9 +136,9 @@ Will show a table of updates:
 	| info@continusec.com | vaZavgQqsBO2lerkknfBeKieJpbyH1skixbbWhj8+o8= | 2016-07-27 12:49:19 | 6zKhd6VNsNBTAK4YIev9DhXv/WjJwGS8JSZiiKQPcnw= | Not yet sequenced |               |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+-------------------+---------------+
 
-To refresh this table:
+To refresh this table and display the log again:
 
-    cks update
+    cks update && cks log
 
 Result:
 
@@ -159,7 +163,7 @@ The `User sequence` column shows an increasing sequence number for just this use
 	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= | 2016-07-27 13:53:05 | afg2Vik+q1g5kCUcTEO9kx4zMk0tjUWHtO+AhWLYp7U= |           11 | Conflict - not sequenced |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
 
-This occurs as each update request is conditional on a previous value - here the previous value (map sequence number 10) was not yet available when map sequence 11 was requested, and as such it was never applied to the map. In such a case you can simply try again:
+This occurs as each update request is conditional on a previous value - here the previous value (map sequence number 10) was not yet available when map sequence 11 was requested, and as such the update for 11 did not have the expected previous value and thus it was never applied to the map. In such a case you can simply try again:
 
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
 	|        EMAIL        |                  VALUE HASH                  |      TIMESTAMP      |              MUTATION LOG ENTRY              | MAP SEQUENCE |      USER SEQUENCE       |
@@ -182,3 +186,141 @@ It is also possible to see multiple entries with the same `Value Hash` and `User
 	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= | 2016-07-27 13:59:10 | wSrzXxha82hR1mC0TJc2Jn/UibPbv0jA+PjttAmkEkI= |           15 |                        7 |
 	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= | 2016-07-27 14:09:01 | PzX1d4T6nFL2T6UGMcJ/T7Ev+RKWU+SFbh5qf9uVdt4= |           16 |                        8 |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
+	
+## Watching other users (their keys)
+
+To indicate interest in watching the key that belongs to another user, run this command:
+
+	cks follow info@continusec.com
+
+Result:
+
+	Following info@continusec.com.
+
+Then run:
+
+   cks list
+   
+To see the status of all keys followed:
+
+	+---------------------+------------+---------------+--------------+
+	|        EMAIL        | VALUE HASH | USER SEQUENCE | LAST UPDATED |
+	+---------------------+------------+---------------+--------------+
+	| info@continusec.com | (none)     | No key found  | Never        |
+	+---------------------+------------+---------------+--------------+
+
+To update, run:
+
+    cks update && cks list
+
+Result:
+
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/tree/0
+	Fetching: https://continusec-key-server.appspot.com/v1/publicKey/info@continusec.com/at/19
+	Tracking revision: 19
+	+---------------------+----------------------------------------------+---------------+--------------+
+	|        EMAIL        |                  VALUE HASH                  | USER SEQUENCE | LAST UPDATED |
+	+---------------------+----------------------------------------------+---------------+--------------+
+	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= |             8 |           19 |
+	+---------------------+----------------------------------------------+---------------+--------------+
+
+Like before, `User Sequence` is an incrmenting index per-user of key changes. `Last Updated` is the size of the map when this was last checked, and should match the number shown by `cks status`.
+
+Let's follow some more users and show what happens if no key is found:
+
+    cks follow support@continusec.com foo@bar.com user@host.com
+
+Result:
+
+	Following support@continusec.com.
+	Following foo@bar.com.
+	Following user@host.com.
+
+Now:
+
+   cks update && cks list
+
+Gives:
+
+	+------------------------+----------------------------------------------+---------------+--------------+
+	|         EMAIL          |                  VALUE HASH                  | USER SEQUENCE | LAST UPDATED |
+	+------------------------+----------------------------------------------+---------------+--------------+
+	| foo@bar.com            | (none)                                       | No key found  |           19 |
+	| info@continusec.com    | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= |             8 |           19 |
+	| support@continusec.com | (none)                                       | No key found  |           19 |
+	| user@host.com          | (none)                                       | No key found  |           19 |
+	+------------------------+----------------------------------------------+---------------+--------------+
+
+Note that we can use `cks update <number>` to get a previous view in time:
+
+    cks update 10 && cks list
+
+Gives:
+
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/tree/10
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/mutation/tree/10/consistency/1
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/treehead/tree/19/inclusion/h/c42b648d2d573f5b6b127a9ce13e1b52bc8feedc312cae6137aed7b488b88315
+	Fetching: https://continusec-key-server.appspot.com/v1/publicKey/foo@bar.com/at/10
+	Fetching: https://continusec-key-server.appspot.com/v1/publicKey/info@continusec.com/at/10
+	Fetching: https://continusec-key-server.appspot.com/v1/publicKey/support@continusec.com/at/10
+	Fetching: https://continusec-key-server.appspot.com/v1/publicKey/user@host.com/at/10
+	Tracking revision: 10
+	+------------------------+----------------------------------------------+---------------+--------------+
+	|         EMAIL          |                  VALUE HASH                  | USER SEQUENCE | LAST UPDATED |
+	+------------------------+----------------------------------------------+---------------+--------------+
+	| foo@bar.com            | (none)                                       | No key found  |           10 |
+	| info@continusec.com    | kvTHQZMQ1JOGTl7m/lHVWKfIzjdDoLBsQKMKl6bppXA= |             4 |           10 |
+	| support@continusec.com | (none)                                       | No key found  |           10 |
+	| user@host.com          | (none)                                       | No key found  |           10 |
+	+------------------------+----------------------------------------------+---------------+--------------+
+
+And no number brings us back to the future:
+
+	cks update
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/tree/0
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/mutation/tree/19/consistency/10
+	Tracking revision: 19
+	
+To see the history for a user (going back from the current value):
+
+    cks history info@continusec.com
+    
+Result:
+
+	+---------------------+----------------------------------------------+---------------+-----------------------+
+	|        EMAIL        |                  VALUE HASH                  | USER SEQUENCE | MAP SIZE RETRIEVED AT |
+	+---------------------+----------------------------------------------+---------------+-----------------------+
+	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= |             8 |                    19 |
+	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= |             7 |                    16 |
+	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= |             6 |                    13 |
+	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= |             5 |                    12 |
+	| info@continusec.com | kvTHQZMQ1JOGTl7m/lHVWKfIzjdDoLBsQKMKl6bppXA= |             4 |                    10 |
+	| info@continusec.com | FaQhQAWqKUPLSJnuM1oEFgOU3o7NM0nn6R6j+wt2DJc= |             3 |                     9 |
+	| info@continusec.com | vaZavgQqsBO2lerkknfBeKieJpbyH1skixbbWhj8+o8= |             2 |                     8 |
+	| info@continusec.com | wIL2fy/RF/7T6LH+sKPsjgq2nTSD8sFjuywnSI6P79E= |             1 |                     7 |
+	| info@continusec.com | YQ4kbkLQn9NbSrohth0QH7Uh/Mv3NIE50Wzz5GD3hGo= |             0 |                     6 |
+	+---------------------+----------------------------------------------+---------------+-----------------------+
+
+To export a key for a user for the current map state in effect:
+
+    cks export info@continusec.com
+ 
+Result:
+ 
+    <binary data>
+
+To export a specific sequence number (user sequence):
+
+    cks export info@continusec.com/3
+
+Result:
+ 
+    <binary data>
+
+## Feedback
+
+Feedback is welcome, contact us at: <info@continusec.com>
+
+The primary purpose of developing the Continusec Key Server was to provide an effective demonstration of the capabilities of the [Continusec Verifiable Data Structures API](https://www.continusec.com/).
+
+We thank the [CONIKS](https://www.usenix.org/system/files/conference/usenixsecurity15/sec15-paper-melara.pdf) folk for the inspiration to build this demonstration.
