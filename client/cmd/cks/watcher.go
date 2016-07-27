@@ -7,10 +7,8 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/binary"
-	"encoding/gob"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -65,49 +63,64 @@ func (ger *GetEntryResult) VerifyInclusion(ms *continusec.MapTreeState) error {
 	}).Verify(&ms.MapTreeHead)
 }
 
-func updateKeyToMapState(key string, ms *continusec.MapTreeState) error {
+func getVerifiedValueForMapState(key string, ms *continusec.MapTreeState) (*PublicKeyData, error) {
 	res, err := getValForEmail(key, ms.TreeSize())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = res.VerifyInclusion(ms)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = validateVufResult(key, res.VUFResult)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if len(res.PublicKeyValue) > 0 {
+	if len(res.PublicKeyValue) == 0 {
+		return nil, nil
+	} else {
 		pkv := &continusec.RedactedJsonEntry{RedactedJsonBytes: res.PublicKeyValue}
 		data, err := pkv.Data()
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		var pkd PublicKeyData
 		err = json.NewDecoder(bytes.NewReader(data)).Decode(&pkd)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		// this should always be true, but including to prevent loops
-		if pkd.PriorTreeSize > 0 && pkd.PriorTreeSize < ms.TreeSize() {
-			vmap, err := getMap()
-			if err != nil {
-				return err
-			}
-			nextMapState, err := vmap.VerifiedMapState(ms, pkd.PriorTreeSize)
-			if err != nil {
-				return err
-			}
-			err = updateKeyToMapState(key, nextMapState)
-			if err != nil {
-				return err
-			}
+		return &pkd, nil
+	}
+}
+
+func updateKeyToMapState(key string, ms *continusec.MapTreeState) error {
+	pkd, err := getVerifiedValueForMapState(key, ms)
+	if err != nil {
+		return err
+	}
+
+	if pkd == nil {
+		return nil
+	}
+
+	// this should always be true, but including to prevent loops
+	if pkd.PriorTreeSize > 0 && pkd.PriorTreeSize < ms.TreeSize() {
+		vmap, err := getMap()
+		if err != nil {
+			return err
+		}
+		nextMapState, err := vmap.VerifiedMapState(ms, pkd.PriorTreeSize)
+		if err != nil {
+			return err
+		}
+		err = updateKeyToMapState(key, nextMapState)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -119,7 +132,7 @@ func updateKeysToMapState(db *bolt.DB, ms *continusec.MapTreeState) error {
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("keys"))
 		err := b.ForEach(func(k, v []byte) error {
-			kvs = append(kvs, [2][]byte{k, v})
+			kvs = append(kvs, [2][]byte{copySlice(k), copySlice(v)})
 			return nil
 		})
 		if err != nil {
@@ -147,7 +160,7 @@ func listUsers(db *bolt.DB, c *cli.Context) error {
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("keys"))
 		err := b.ForEach(func(k, v []byte) error {
-			kvs = append(kvs, [2][]byte{k, v})
+			kvs = append(kvs, [2][]byte{copySlice(k), copySlice(v)})
 			return nil
 		})
 		if err != nil {
@@ -254,7 +267,7 @@ func validateVufResult(email string, vufResult []byte) error {
 	var vuf []byte
 	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("conf"))
-		vuf = b.Get([]byte("vufKey"))
+		vuf = copySlice(b.Get([]byte("vufKey")))
 		return nil
 	})
 	if err != nil {
@@ -273,86 +286,6 @@ func validateVufResult(email string, vufResult []byte) error {
 
 	hashed := sha256.Sum256([]byte(email))
 	return rsa.VerifyPKCS1v15(ppkey, crypto.SHA256, hashed[:], vufResult)
-}
-
-func updateTree(db *bolt.DB, c *cli.Context) error {
-	seq := 0
-	switch c.NArg() {
-	case 0:
-		seq = 0
-	case 1:
-		var err error
-		seq, err = strconv.Atoi(c.Args().Get(0))
-		if err != nil {
-			return err
-		}
-	default:
-		return cli.NewExitError("wrong number of argument specified", 1)
-	}
-
-	mapState, err := getCurrentHead("head")
-	if err != nil {
-		return handleError(err)
-	}
-
-	vmap, err := getMap()
-	if err != nil {
-		return err
-	}
-
-	newMapState, err := vmap.VerifiedMapState(mapState, int64(seq))
-	if err != nil {
-		return err
-	}
-
-	err = setCurrentHead("head", newMapState)
-	if err != nil {
-		return err
-	}
-
-	/*	err = updateKeysToMapState(db, newMapState)
-		if err != nil {
-			return err
-		}*/
-
-	fmt.Printf("Tree size set to: %d\n", newMapState.TreeSize())
-
-	return nil
-}
-
-func setCurrentHead(key string, newMapState *continusec.MapTreeState) error {
-	db, err := GetDB()
-	if err != nil {
-		return err
-	}
-
-	b := &bytes.Buffer{}
-	err = gob.NewEncoder(b).Encode(newMapState)
-	if err != nil {
-		return err
-	}
-
-	return db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte("conf")).Put([]byte(key), b.Bytes())
-	})
-}
-
-func getCurrentHead(key string) (*continusec.MapTreeState, error) {
-	var mapState continusec.MapTreeState
-
-	db, err := GetDB()
-	if err != nil {
-		return nil, err
-	}
-
-	err = db.View(func(tx *bolt.Tx) error {
-		return gob.NewDecoder(bytes.NewReader(tx.Bucket([]byte("conf")).Get([]byte(key)))).Decode(&mapState)
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &mapState, nil
 }
 
 var (

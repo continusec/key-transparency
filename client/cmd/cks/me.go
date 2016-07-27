@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -19,6 +20,10 @@ import (
 	"github.com/continusec/go-client/continusec"
 	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli"
+)
+
+var (
+	ErrUnexpectedResult = errors.New("ErrUnexpectedResult")
 )
 
 // AddEntryResult is the data returned when setting a key in the map
@@ -42,38 +47,36 @@ type UpdateResult struct {
 	// -1 means unknown
 	LeafIndex int64
 
+	// -1 means unknown. -2 means never took effect
+	UserSequence int64
+
 	// Timestamp when written
 	Timestamp time.Time
 }
 
-func listUpdates(db *bolt.DB, c *cli.Context) error {
-	var emailAddress string
-
-	switch c.NArg() {
-	case 0:
-		// ignore
-	case 1:
-		emailAddress = c.Args().Get(0)
-	default:
-		return cli.NewExitError("incorrect number of arguments. see help", 1)
+func checkUpdateListForNewness(db *bolt.DB, ms *continusec.MapTreeState) error {
+	results := make([][2][]byte, 0)
+	gotOne := func(k, v []byte) error {
+		results = append(results, [2][]byte{copySlice(k), copySlice(v)})
+		return nil
 	}
-
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Email", "Value Hash", "Timestamp", "Mutation Log Entry", "Sequence"})
-
-	ms, err := getCurrentHead("head")
+	err := db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("updates")).ForEach(func(k, v []byte) error { return gotOne(k, v) })
+	})
 	if err != nil {
 		return err
 	}
+	for _, r := range results {
+		k := r[0]
+		v := r[1]
 
-	gotOne := func(b *bolt.Bucket, k, v []byte) error {
 		var ur UpdateResult
 		err := gob.NewDecoder(bytes.NewReader(v)).Decode(&ur)
 		if err != nil {
 			return err
 		}
 
-		if ur.LeafIndex == -1 && c.Bool("check") && ms != nil {
+		if ur.LeafIndex == -1 {
 			vmap, err := getMap()
 			if err != nil {
 				return err
@@ -89,32 +92,69 @@ func listUpdates(db *bolt.DB, c *cli.Context) error {
 
 				ur.LeafIndex = proof.LeafIndex
 
+				// Next, check if the value took effect - remember to add 1 to the leaf index, e.g. mutation 6 is tree size 7
+				mapStateForMut, err := vmap.VerifiedMapState(ms, proof.LeafIndex+1)
+				if err != nil {
+					return err
+				}
+
+				// See what we can get in that map state
+				pkd, err := getVerifiedValueForMapState(ur.Email, mapStateForMut)
+				if err != nil {
+					return err
+				}
+
+				// This ought not happen - we could have conflicted with another, but not empty.
+				if pkd == nil {
+					return ErrUnexpectedResult
+				}
+
+				// Now, see if we wrote the value we wanted
+				vh := sha256.Sum256(pkd.PGPPublicKey)
+				if bytes.Equal(vh[:], ur.ValueHash) {
+					ur.UserSequence = pkd.Sequence
+				} else {
+					ur.UserSequence = -2
+				}
+
 				buffer := &bytes.Buffer{}
 				err = gob.NewEncoder(buffer).Encode(ur)
 				if err != nil {
 					return err
 				}
 
-				err = b.Put(k, buffer.Bytes())
+				err = db.Update(func(tx *bolt.Tx) error {
+					return tx.Bucket([]byte("updates")).Put(k, buffer.Bytes())
+				})
 
 				if err != nil {
 					return err
 				}
 			}
 		}
+	}
+	return nil
+}
 
-		table.Append([]string{
-			ur.Email,
-			base64.StdEncoding.EncodeToString(ur.ValueHash),
-			ur.Timestamp.String()[:19],
-			base64.StdEncoding.EncodeToString(ur.MutationLeafHash),
-			strconv.Itoa(int(ur.LeafIndex)),
-		})
 
-		return nil
+func listUpdates(db *bolt.DB, c *cli.Context) error {
+	var emailAddress string
+
+	switch c.NArg() {
+	case 0:
+		// ignore
+	case 1:
+		emailAddress = c.Args().Get(0)
+	default:
+		return cli.NewExitError("incorrect number of arguments. see help", 1)
 	}
 
-	err = db.Update(func(tx *bolt.Tx) error {
+	results := make([][2][]byte, 0)
+	gotOne := func(b *bolt.Bucket, k, v []byte) error {
+		results = append(results, [2][]byte{copySlice(k), copySlice(v)})
+		return nil
+	}
+	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("updates"))
 		if len(emailAddress) == 0 {
 			b.ForEach(func(k, v []byte) error { return gotOne(b, k, v) })
@@ -140,8 +180,47 @@ func listUpdates(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	table.Render()
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Email", "Value Hash", "Timestamp", "Mutation Log Entry", "Map Sequence", "User Sequence"})
 
+	for _, r := range results {
+		v := r[1]
+
+		var ur UpdateResult
+		err := gob.NewDecoder(bytes.NewReader(v)).Decode(&ur)
+		if err != nil {
+			return err
+		}
+
+		var mutSeq, userSeq string
+
+		switch ur.LeafIndex {
+		case -1:
+			mutSeq = "Not yet sequenced"
+		default:
+			mutSeq = strconv.Itoa(int(ur.LeafIndex))
+
+			switch ur.UserSequence {
+			case -1:
+				userSeq = "Not yet sequenced"
+			case -2:
+				userSeq = "Conflict - not sequenced"
+			default:
+				userSeq = strconv.Itoa(int(ur.UserSequence))
+			}
+		}
+
+		table.Append([]string{
+			ur.Email,
+			base64.StdEncoding.EncodeToString(ur.ValueHash),
+			ur.Timestamp.String()[:19],
+			base64.StdEncoding.EncodeToString(ur.MutationLeafHash),
+			mutSeq,
+			userSeq,
+		})
+	}
+
+	table.Render()
 	return nil
 }
 
@@ -176,11 +255,7 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 
 	fmt.Printf("Setting key for %s with token...\n", emailAddress)
 
-	var server string
-	err := db.View(func(tx *bolt.Tx) error {
-		server = string(tx.Bucket([]byte("conf")).Get([]byte("server")))
-		return nil
-	})
+	server, err := getServer()
 	if err != nil {
 		return err
 	}
@@ -199,8 +274,14 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return err
+	switch resp.StatusCode {
+	case 200:
+		// continue
+	case 204:
+		fmt.Println("Key already set to this value - no mutation generated.")
+		return nil
+	default:
+		return ErrUnexpectedResult
 	}
 
 	contents, err := ioutil.ReadAll(resp.Body)
@@ -232,6 +313,7 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 		MutationLeafHash: aer.MutationEntryLeafHash,
 		ValueHash:        vh[:],
 		LeafIndex:        -1,
+		UserSequence:     -1,
 		Timestamp:        time.Now(),
 	})
 	if err != nil {
@@ -267,11 +349,7 @@ func mailToken(db *bolt.DB, c *cli.Context) error {
 	if c.Bool("yes") || confirmIt(fmt.Sprintf("Are you sure you want to generate and send a token to address (%s)? Please only do so if you own that email account.", emailAddress)) {
 		fmt.Printf("Sending mail to %s with token...\n", emailAddress)
 
-		var server string
-		err := db.View(func(tx *bolt.Tx) error {
-			server = string(tx.Bucket([]byte("conf")).Get([]byte("server")))
-			return nil
-		})
+		server, err := getServer()
 		if err != nil {
 			return handleError(err)
 		}

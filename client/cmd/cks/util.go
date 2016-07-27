@@ -40,6 +40,12 @@ var (
 	ErrServerError      = errors.New("ErrServerError")
 )
 
+func copySlice(a []byte) []byte {
+	rv := make([]byte, len(a))
+	copy(rv, a)
+	return rv
+}
+
 type CachingVerifyingRT struct {
 	DB *bolt.DB
 }
@@ -108,7 +114,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 	}
 
 	if resp.StatusCode != 200 {
-		fmt.Printf("%+v\n", resp)
+		//fmt.Printf("%+v\n", resp)
 		return nil, ErrServerError
 	}
 

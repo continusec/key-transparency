@@ -40,23 +40,23 @@ func main() {
 			},
 		},
 		{
-			Name:   "conf",
-			Usage:  "Display server configuration",
-			Action: stdCmd(showConf),
+			Name:   "status",
+			Usage:  "Show revision of map in effect",
+			Action: stdCmd(showStatus),
 		},
 		{
-			Name:   "cache",
-			Usage:  "Display cache of data received from server",
-			Action: stdCmd(showCache),
+			Name:   "gossip",
+			Usage:  "Print data suitable for gossip - will always be latest tree head log tree head",
+			Action: stdCmd(showGossip),
 		},
 		{
-			Name:      "pull",
+			Name:      "update",
 			Usage:     "Update to latest version of the tree",
 			Action:    stdCmd(updateTree),
 			ArgsUsage: "[optional sequence number to pull to, defaults to latest]",
 		},
 		{
-			Name:      "token",
+			Name:      "mail",
 			Usage:     "mail a short-lived token to your email that can be used to update your public key",
 			Action:    stdCmd(mailToken),
 			ArgsUsage: "[email address to send token to]",
@@ -68,7 +68,7 @@ func main() {
 			},
 		},
 		{
-			Name:      "push",
+			Name:      "upload",
 			Usage:     "Upload a public key for a user.",
 			Action:    stdCmd(setKey),
 			ArgsUsage: "[email address for key] [path to public key, or - for stdin] [token received via email]",
@@ -78,12 +78,20 @@ func main() {
 			Usage:     "List updates that have been sent from this client",
 			Action:    stdCmd(listUpdates),
 			ArgsUsage: "[email address to list updates for, or no args for all]",
-			Flags: []cli.Flag{
-				cli.BoolFlag{
-					Name:  "check",
-					Usage: "Check for sequence numbers for any unsequenced against current head.",
-				},
-			},
+		},
+		
+		
+		
+
+		{
+			Name:   "conf",
+			Usage:  "Display server configuration",
+			Action: stdCmd(showConf),
+		},
+		{
+			Name:   "cache",
+			Usage:  "Display cache of data received from server",
+			Action: stdCmd(showCache),
 		},
 		{
 			Name:      "follow",
