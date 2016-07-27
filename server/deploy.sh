@@ -1,3 +1,3 @@
 #!/bin/sh
 
-GOPATH=$PWD:$PWD/vendor appcfg.py update src
+appcfg.py update cks

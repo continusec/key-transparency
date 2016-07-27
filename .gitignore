@@ -1,4 +1,3 @@
 client/bin/
 client/pkg/
-server/cksserver
-server/src/config.toml
+server/cks/config.toml

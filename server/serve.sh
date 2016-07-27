@@ -1,3 +1,3 @@
 #!/bin/sh
 
-GOPATH=$PWD:$PWD/vendor goapp serve src/app.yaml
+goapp serve cks/app.yaml
