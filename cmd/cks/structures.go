@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/sha256"
 	"math/big"
+	"time"
 
 	"github.com/continusec/go-client/continusec"
 )
@@ -67,6 +68,35 @@ type treeSizeResponse struct {
 type gossip struct {
 	Signature           []byte `json:"sig"`
 	TreeHeadLogTreehead []byte `json:"thlth"`
+}
+
+// AddEntryResult is the data returned when setting a key in the map
+type AddEntryResult struct {
+	// MutationEntryLeafHash is the leaf hash of the entry added to the mutation log for the map.
+	// Once this has been verified to be added to the mutation log for the map, then this entry
+	// will be reflected for the map at that size (provided no conflicting operation occurred).
+	MutationEntryLeafHash []byte `json:"mutationEntryLeafHash"`
+}
+
+// UpdateResult is something we save off locally for each entry that we have added.
+type UpdateResult struct {
+	// Email address that this was added for
+	Email string
+
+	// Mutation log entry as returned by the server
+	MutationLeafHash []byte
+
+	// sha256 of the value set
+	ValueHash []byte
+
+	// -1 means unknown
+	LeafIndex int64
+
+	// -1 means unknown. -2 means never took effect
+	UserSequence int64
+
+	// Timestamp when written
+	Timestamp time.Time
 }
 
 // GetEntryResult is the data returned when looking up data for an email address

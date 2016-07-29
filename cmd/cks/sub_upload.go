@@ -23,6 +23,7 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -94,10 +95,9 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 	case 200:
 		// continue
 	case 204:
-		fmt.Println("Key already set to this value - no mutation generated.")
-		return nil
+		return errors.New("Key already set to this value - no mutation generated")
 	default:
-		return ErrUnexpectedResult
+		return errors.New(fmt.Sprintf("Unexpected serve response: %d", resp.StatusCode))
 	}
 
 	contents, err := ioutil.ReadAll(resp.Body)
@@ -158,7 +158,7 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 // provided it is less than 1 MB.
 func validateData(data []byte) error {
 	if len(data) > (1024 * 1024) {
-		return ErrUnexpectedResult
+		return errors.New("Data too large - currently 1MB limit")
 	}
 
 	p, err := armor.Decode(bytes.NewReader(data))
@@ -167,11 +167,11 @@ func validateData(data []byte) error {
 	}
 
 	if p == nil {
-		return ErrUnexpectedResult
+		return errors.New("Unable to parse as PGP PUBLIC KEY (armored)")
 	}
 
 	if p.Type != "PGP PUBLIC KEY BLOCK" {
-		return ErrUnexpectedResult
+		return errors.New("Unable to find PGP PUBLIC KEY BLOCK")
 	}
 
 	// All good

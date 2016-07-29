@@ -30,17 +30,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/boltdb/bolt"
 	"github.com/continusec/go-client/continusec"
 	"github.com/urfave/cli"
 )
-
-// Return wrapped CLI exit error
-func handleError(err error) error {
-	return cli.NewExitError("Error: "+err.Error(), 1)
-}
 
 // Return true if user types "yes"
 func confirmIt(prompt string) bool {
@@ -69,13 +63,13 @@ func stdCmd(f func(db *bolt.DB, c *cli.Context) error) func(c *cli.Context) erro
 	return func(c *cli.Context) error {
 		db, err := GetDB()
 		if err != nil {
-			return handleError(err)
+			return cli.NewExitError("Error: "+err.Error(), 1)
 		}
 		defer db.Close()
 
 		err = f(db, c)
 		if err != nil {
-			return handleError(err)
+			return cli.NewExitError("Error: "+err.Error(), 1)
 		}
 
 		return nil
@@ -173,6 +167,7 @@ func validateVufResult(email string, vufResult []byte) error {
 	return rsa.VerifyPKCS1v15(ppkey, crypto.SHA256, hashed[:], vufResult)
 }
 
+// Set current head value. key is usually "head"
 func setCurrentHead(key string, newMapState *continusec.MapTreeState) error {
 	db, err := GetDB()
 	if err != nil {
@@ -194,6 +189,7 @@ func setCurrentHead(key string, newMapState *continusec.MapTreeState) error {
 	})
 }
 
+// Get current head value. key is usually "head"
 func getCurrentHead(key string) (*continusec.MapTreeState, error) {
 	var mapState continusec.MapTreeState
 	var empty bool
@@ -225,118 +221,4 @@ func getCurrentHead(key string) (*continusec.MapTreeState, error) {
 	} else {
 		return &mapState, nil
 	}
-}
-
-var (
-	ErrUnexpectedResult = errors.New("ErrUnexpectedResult")
-)
-
-// AddEntryResult is the data returned when setting a key in the map
-type AddEntryResult struct {
-	// MutationEntryLeafHash is the leaf hash of the entry added to the mutation log for the map.
-	// Once this has been verified to be added to the mutation log for the map, then this entry
-	// will be reflected for the map at that size (provided no conflicting operation occurred).
-	MutationEntryLeafHash []byte `json:"mutationEntryLeafHash"`
-}
-
-type UpdateResult struct {
-	// Email address that this was added for
-	Email string
-
-	// Mutation log entry as returned by the server
-	MutationLeafHash []byte
-
-	// sha256 of the value set
-	ValueHash []byte
-
-	// -1 means unknown
-	LeafIndex int64
-
-	// -1 means unknown. -2 means never took effect
-	UserSequence int64
-
-	// Timestamp when written
-	Timestamp time.Time
-}
-
-func checkUpdateListForNewness(db *bolt.DB, ms *continusec.MapTreeState) error {
-	results := make([][2][]byte, 0)
-	gotOne := func(k, v []byte) error {
-		results = append(results, [2][]byte{copySlice(k), copySlice(v)})
-		return nil
-	}
-	err := db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte("updates")).ForEach(func(k, v []byte) error { return gotOne(k, v) })
-	})
-	if err != nil {
-		return err
-	}
-	for _, r := range results {
-		k := r[0]
-		v := r[1]
-
-		var ur UpdateResult
-		err := gob.NewDecoder(bytes.NewReader(v)).Decode(&ur)
-		if err != nil {
-			return err
-		}
-
-		if ur.LeafIndex == -1 {
-			vmap, err := getMap()
-			if err != nil {
-				return err
-			}
-			proof, err := vmap.MutationLog().InclusionProof(ms.TreeSize(), &continusec.AddEntryResponse{EntryLeafHash: ur.MutationLeafHash})
-			if err != nil {
-				// pass, don't return err as it may not have been sequenced yet
-			} else {
-				err = proof.Verify(&ms.MapTreeHead.MutationLogTreeHead)
-				if err != nil {
-					return err
-				}
-
-				ur.LeafIndex = proof.LeafIndex
-
-				// Next, check if the value took effect - remember to add 1 to the leaf index, e.g. mutation 6 is tree size 7
-				mapStateForMut, err := vmap.VerifiedMapState(ms, proof.LeafIndex+1)
-				if err != nil {
-					return err
-				}
-
-				// See what we can get in that map state
-				pkd, err := getVerifiedValueForMapState(ur.Email, mapStateForMut)
-				if err != nil {
-					return err
-				}
-
-				// This ought not happen - we could have conflicted with another, but not empty.
-				if pkd == nil {
-					return ErrUnexpectedResult
-				}
-
-				// Now, see if we wrote the value we wanted
-				vh := sha256.Sum256(pkd.PGPPublicKey)
-				if bytes.Equal(vh[:], ur.ValueHash) {
-					ur.UserSequence = pkd.Sequence
-				} else {
-					ur.UserSequence = -2
-				}
-
-				buffer := &bytes.Buffer{}
-				err = gob.NewEncoder(buffer).Encode(ur)
-				if err != nil {
-					return err
-				}
-
-				err = db.Update(func(tx *bolt.Tx) error {
-					return tx.Bucket([]byte("updates")).Put(k, buffer.Bytes())
-				})
-
-				if err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
 }
