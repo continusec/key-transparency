@@ -12,7 +12,7 @@ The client is written in Go, begin by installing the Go compiler from: <https://
 
 Once installed, install the client:
 
-    go get github.com/continusec/key-transparency/client/cmd/cks
+    go get github.com/continusec/key-transparency/cmd/cks
 
 And then to run:
 
@@ -42,7 +42,7 @@ During initializing any requests sent to the server will be printed, for example
 	Fetching: https://continusec-key-server.appspot.com/v1/config/vufPublicKey
 	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/tree/0
 	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/treehead/tree/0
-	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/treehead/tree/6/inclusion/h/91a287ccbe6c0dcb94c50a973482500202c3330417e3ecb561049e592faf7cf5
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/treehead/tree/1/inclusion/h/26e9bd9ddc8c362224fb8d6c62c16cc4c95875647e19ff93debded6deb236630
 	Initialization complete.
 
 ## Tracking Server State
@@ -55,7 +55,7 @@ To see the current sequence number in effect:
 
 Results in:
 
-    Tracking revision: 6
+    Tracking revision: 1
 
 To check for updates from the server use:
 
@@ -63,8 +63,8 @@ To check for updates from the server use:
 
 Which shows any requests sent to the server for fresh state, and completes by displaying the revision in effect (in this case, unchanged):
 
-    Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/tree/0
-    Tracking revision: 6
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/tree/0
+	Tracking revision: 1
 
 If desired once can request that the client act upon an earlier version of server state, this is done by passing a sequence number as an argument like follows:
 
@@ -85,22 +85,23 @@ It can be useful to output a small piece of information that can be gossiped to 
     
 Will output such information, suitable for automated processing:
 
-    {
-    	"thlth": "eyJ0cmVlX3NpemUiOjYsInRyZWVfaGFzaCI6IkQ3aXoyaU9qWjJpQVl0MWtGYmR6UnJWNzdQT2NhNnV2djl0SHVQUTlLbkU9In0K"
-    	"sig": "MEUCICwAI5MG/Jp2OGrLSM+A2jzrJ+L6TbjpR+4qaoBSOLBgAiEAp04Vnl9s+x2b17Fu3AWvYQwNm6yfvXzh42bZ6dZ0mNw=",
-    }
+	eyJzaWciOiJNRVFDSUMwVWlJZUNqWElpd25wWVJTTys4YnFwSTZIZzczTTBSWVRpSnFiclJ0Y2VBaUJnNml2UnRHNC94b2F2U0l0ZEVIb1AzR05CaTdFTE1YRDdMQVlvTFV2bDJnPT0iLCJ0aGx0aCI6ImV5SjBjbVZsWDNOcGVtVWlPakVzSW5SeVpXVmZhR0Z6YUNJNklrcDFiVGx1WkhsTlRtbEpheXMwTVhOWmMwWnplRTFzV1dSWFVpdEhaaXRVTTNJemRHSmxjMnBhYWtFOUluMEsifQo=
     
+If you base-64 decode this, we get:
+
+	{
+	    "sig": "MEQCIC0UiIeCjXIiwnpYRSO+8bqpI6Hg73M0RYTiJqbrRtceAiBg6ivRtG4/xoavSItdEHoP3GNBi7ELMXD7LAYoLUvl2g==",
+	    "thlth": "eyJ0cmVlX3NpemUiOjEsInRyZWVfaGFzaCI6Ikp1bTluZHlNTmlJays0MXNZc0ZzeE1sWWRXUitHZitUM3IzdGJlc2paakE9In0K"
+	}
+
+
 The `thlth` field is base-64 encoded JSON as received by the client for the latest tree head log tree head for the map and the `sig` field is the base-64 encoded ASN.1 signature over the JSON bytes as returned by the Key Server.
 
 If two inconsistent `thlth` values are emitted by the Key Server, that is a sign of misbehavior.
 
 ## Uploading your own public key
 
-To upload your own public key, either new or as an update, first export it from `gpg` (or whatever tool is used):
-
-    gpg --export info@continusec.com > mypublickey.bin
-
-Then request an authorization token to your email address, for example:
+To upload your own public key, either new or as an update, first request an authorization token be sent to your email address, for example:
 
     cks mail info@continusec.com
 
@@ -113,14 +114,14 @@ And upon success:
 	Sending mail to info@continusec.com with token...
 	Success. See email for further instructions.
 
-Wait for an email including the token, and then use this to upload the key saved above as follows:
+Wait for an email including the token, and then use this to upload your key, which can should be the output of `gpg --armor --export`. Either pipe this as follows:
 
-    cks upload info@continusec.com mypublickey.bin ME0wRQIgZIox0Bf20Fg9xschAljhuhrhXZMlKbEUCm8i5fl+9ywCIQCf3hRuTUxHt+ax931slp2NWks+XfgYmQpxgnt0PE9PzwIEV5gh9w==
-
-Result:
+    gpg --armor --export info@continusec.com | cks upload info@continusec.com - ME0wRQIge+mIyeT/eJjZyh+FeB4NWdxn23a5eD8d8K23ZTeetsMCIQDl9Ye7bXvfP6sNbzjpn9v6UrKipxwdeHYN3698W5YN+gIEV5r3Jw==
+    
+Or save in a file, and repalce the `-` with the filename. Result:
 
 	Setting key for info@continusec.com with token...
-	Success. Leaf hash of mutation: 6zKhd6VNsNBTAK4YIev9DhXv/WjJwGS8JSZiiKQPcnw=
+	Success. Leaf hash of mutation: 9y1sTCXsI/1sGCB6jEq1629fNHbYEqFwVWrJlmpLk5w=
 
 Done, your key has been added to the key server.
 
@@ -133,7 +134,7 @@ Will show a table of updates:
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+-------------------+---------------+
 	|        EMAIL        |                  VALUE HASH                  |      TIMESTAMP      |              MUTATION LOG ENTRY              |   MAP SEQUENCE    | USER SEQUENCE |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+-------------------+---------------+
-	| info@continusec.com | vaZavgQqsBO2lerkknfBeKieJpbyH1skixbbWhj8+o8= | 2016-07-27 12:49:19 | 6zKhd6VNsNBTAK4YIev9DhXv/WjJwGS8JSZiiKQPcnw= | Not yet sequenced |               |
+	| info@continusec.com | mGng5V2kf9NREaeOke3bAaMJLHOgAa4YulFgisVErcI= | 2016-07-29 15:28:19 | 9y1sTCXsI/1sGCB6jEq1629fNHbYEqFwVWrJlmpLk5w= | Not yet sequenced |               |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+-------------------+---------------+
 
 To refresh this table and display the log again:
@@ -143,49 +144,44 @@ To refresh this table and display the log again:
 Result:
 
 	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/tree/0
-	Tracking revision: 8
-	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/mutation/tree/8/inclusion/h/eb32a177a54db0d05300ae1821ebfd0e15effd68c9c064bc25266288a40f727c
-	Fetching: https://continusec-key-server.appspot.com/v1/publicKey/info@continusec.com/at/8
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/mutation/tree/2/consistency/1
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/treehead/tree/0
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/treehead/tree/2/consistency/1
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/treehead/tree/2/inclusion/h/623c4ebd680004167341c4e713418f86f89521d5e61528edb34708059a3e8c03
+	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/log/mutation/tree/2/inclusion/h/f72d6c4c25ec23fd6c18207a8c4ab5eb6f5f3476d812a170556ac9966a4b939c
+	Fetching: https://continusec-key-server.appspot.com/v1/publicKey/info@continusec.com/at/2
+	Tracking revision: 2
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+---------------+
 	|        EMAIL        |                  VALUE HASH                  |      TIMESTAMP      |              MUTATION LOG ENTRY              | MAP SEQUENCE | USER SEQUENCE |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+---------------+
-	| info@continusec.com | vaZavgQqsBO2lerkknfBeKieJpbyH1skixbbWhj8+o8= | 2016-07-27 12:49:19 | 6zKhd6VNsNBTAK4YIev9DhXv/WjJwGS8JSZiiKQPcnw= |            7 |             2 |
+	| info@continusec.com | mGng5V2kf9NREaeOke3bAaMJLHOgAa4YulFgisVErcI= | 2016-07-29 15:28:19 | 9y1sTCXsI/1sGCB6jEq1629fNHbYEqFwVWrJlmpLk5w= |            1 |             0 |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+---------------+
 
-`Not yet sequenced` means that the mutation log entry has not yet been sequenced and added to the map. Once it has been sequenced (that is a number appears in this column), then any revision of the map *greater than* that number will reflect this value. So here mutation 7 is reflected in map sequence number 8 and beyond.
+`Not yet sequenced` means that the mutation log entry has not yet been sequenced and added to the map. Once it has been sequenced (that is a number appears in this column), then any revision of the map *greater than* that number will reflect this value. So here mutation 1 is reflected in map sequence number 2 and beyond.
 
 The `User sequence` column shows an increasing sequence number for just this user. The initial value for each user is 0 and this increases with each successful update. If a fresh update is requested for a user while another update is pending to apply, it will result in a `Conflict - not sequenced` message like below:
 
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
 	|        EMAIL        |                  VALUE HASH                  |      TIMESTAMP      |              MUTATION LOG ENTRY              | MAP SEQUENCE |      USER SEQUENCE       |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
-	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= | 2016-07-27 13:53:01 | kI5hSGAy8WPas7QrwnGprWFNZQbU45zjx7/TBkF6BWM= |           10 |                        5 |
-	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= | 2016-07-27 13:53:05 | afg2Vik+q1g5kCUcTEO9kx4zMk0tjUWHtO+AhWLYp7U= |           11 | Conflict - not sequenced |
+	| info@continusec.com | mGng5V2kf9NREaeOke3bAaMJLHOgAa4YulFgisVErcI= | 2016-07-29 15:28:19 | 9y1sTCXsI/1sGCB6jEq1629fNHbYEqFwVWrJlmpLk5w= |            1 |                        0 |
+	| info@continusec.com | or/a9EtFEwy+sdGs53Jv/6+gmCtOAcTMFXXlsOWKKRc= | 2016-07-29 15:33:09 | 1PgRupcjard1bpHd2aYHckq1XTKBDoS5P2n9jQ8EEM0= |            2 |                        1 |
+	| info@continusec.com | 995GpJzmXOa8RQ3TAQNtzJfwtv3gJdOsPIqVpYml4AA= | 2016-07-29 15:33:13 | O9oFUxckh7pemYLywENdZup6QIkwIQFv0RmHfudhwCI= |            3 | Conflict - not sequenced |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
 
-This occurs as each update request is conditional on a previous value - here the previous value (map sequence number 10) was not yet available when map sequence 11 was requested, and as such the update for 11 did not have the expected previous value and thus it was never applied to the map. In such a case you can simply try again:
+
+This occurs as each update request is conditional on a previous value - here the previous value (map sequence number 2) was not yet available when map sequence 3 was requested, and as such the update for 3 did not have the expected previous value and thus it was never applied to the map. In such a case you can simply try again:
 
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
 	|        EMAIL        |                  VALUE HASH                  |      TIMESTAMP      |              MUTATION LOG ENTRY              | MAP SEQUENCE |      USER SEQUENCE       |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
-	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= | 2016-07-27 13:53:01 | kI5hSGAy8WPas7QrwnGprWFNZQbU45zjx7/TBkF6BWM= |           10 |                        5 |
-	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= | 2016-07-27 13:53:05 | afg2Vik+q1g5kCUcTEO9kx4zMk0tjUWHtO+AhWLYp7U= |           11 | Conflict - not sequenced |
-	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= | 2016-07-27 13:55:56 | 1r3bFYbvaSNpu1sh+fajzLz17iPq7kT7SvFbSBpTVPk= |           12 |                        6 |
+	| info@continusec.com | mGng5V2kf9NREaeOke3bAaMJLHOgAa4YulFgisVErcI= | 2016-07-29 15:28:19 | 9y1sTCXsI/1sGCB6jEq1629fNHbYEqFwVWrJlmpLk5w= |            1 |                        0 |
+	| info@continusec.com | or/a9EtFEwy+sdGs53Jv/6+gmCtOAcTMFXXlsOWKKRc= | 2016-07-29 15:33:09 | 1PgRupcjard1bpHd2aYHckq1XTKBDoS5P2n9jQ8EEM0= |            2 |                        1 |
+	| info@continusec.com | 995GpJzmXOa8RQ3TAQNtzJfwtv3gJdOsPIqVpYml4AA= | 2016-07-29 15:33:13 | O9oFUxckh7pemYLywENdZup6QIkwIQFv0RmHfudhwCI= |            3 | Conflict - not sequenced |
+	| info@continusec.com | 995GpJzmXOa8RQ3TAQNtzJfwtv3gJdOsPIqVpYml4AA= | 2016-07-29 15:34:40 | 6BE4IhuPxv3RZ6RsdSVP0zVzhvhkuxSKJF0TwHrIBhA= |            4 |                        2 |
 	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
 
 It is also possible to see multiple entries with the same `Value Hash` and `User Sequence` - this occurs if duplicate requests arrive at once. Technically only one of the mutation operation actually takes effect, however for the purpose of the console report we simply show th same user sequence against each, signifying that that value hash was in effect at that map mutation size.
-
-	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
-	|        EMAIL        |                  VALUE HASH                  |      TIMESTAMP      |              MUTATION LOG ENTRY              | MAP SEQUENCE |      USER SEQUENCE       |
-	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
-	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= | 2016-07-27 13:53:01 | kI5hSGAy8WPas7QrwnGprWFNZQbU45zjx7/TBkF6BWM= |           10 |                        5 |
-	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= | 2016-07-27 13:53:05 | afg2Vik+q1g5kCUcTEO9kx4zMk0tjUWHtO+AhWLYp7U= |           11 | Conflict - not sequenced |
-	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= | 2016-07-27 13:55:56 | 1r3bFYbvaSNpu1sh+fajzLz17iPq7kT7SvFbSBpTVPk= |           12 |                        6 |
-	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= | 2016-07-27 13:59:07 | u23v5GlfaFxxSSMnVOjoPArvchjiViKbb8kiJ+VLYXQ= |           13 |                        7 |
-	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= | 2016-07-27 13:59:09 | vKYGwSTW4LONNmSFjGUsf/F1PwqT7WgQVWr7z9d81jI= |           14 |                        7 |
-	| info@continusec.com | eMV5VioXJp8O9ZmHxG08Ys4yFKOcdzy1OpOkCNNYqKk= | 2016-07-27 13:59:10 | wSrzXxha82hR1mC0TJc2Jn/UibPbv0jA+PjttAmkEkI= |           15 |                        7 |
-	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= | 2016-07-27 14:09:01 | PzX1d4T6nFL2T6UGMcJ/T7Ev+RKWU+SFbh5qf9uVdt4= |           16 |                        8 |
-	+---------------------+----------------------------------------------+---------------------+----------------------------------------------+--------------+--------------------------+
 	
 ## Watching other users (their keys)
 
@@ -216,12 +212,11 @@ To update, run:
 Result:
 
 	Fetching: https://continusec-key-server.appspot.com/v1/wrappedMap/tree/0
-	Fetching: https://continusec-key-server.appspot.com/v1/publicKey/info@continusec.com/at/19
-	Tracking revision: 19
+	Tracking revision: 5
 	+---------------------+----------------------------------------------+---------------+--------------+
 	|        EMAIL        |                  VALUE HASH                  | USER SEQUENCE | LAST UPDATED |
 	+---------------------+----------------------------------------------+---------------+--------------+
-	| info@continusec.com | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= |             8 |           19 |
+	| info@continusec.com | 995GpJzmXOa8RQ3TAQNtzJfwtv3gJdOsPIqVpYml4AA= |             2 |            5 |
 	+---------------------+----------------------------------------------+---------------+--------------+
 
 Like before, `User Sequence` is an incrmenting index per-user of key changes. `Last Updated` is the size of the map when this was last checked, and should match the number shown by `cks status`.
@@ -245,15 +240,15 @@ Gives:
 	+------------------------+----------------------------------------------+---------------+--------------+
 	|         EMAIL          |                  VALUE HASH                  | USER SEQUENCE | LAST UPDATED |
 	+------------------------+----------------------------------------------+---------------+--------------+
-	| foo@bar.com            | (none)                                       | No key found  |           19 |
-	| info@continusec.com    | 50MF8B60FVuGPcS7fc7Q2sAxaAKZaNYXK+/040qcR+k= |             8 |           19 |
-	| support@continusec.com | (none)                                       | No key found  |           19 |
-	| user@host.com          | (none)                                       | No key found  |           19 |
+	| foo@bar.com            | (none)                                       | No key found  |            5 |
+	| info@continusec.com    | 995GpJzmXOa8RQ3TAQNtzJfwtv3gJdOsPIqVpYml4AA= |             2 |            5 |
+	| support@continusec.com | (none)                                       | No key found  |            5 |
+	| user@host.com          | (none)                                       | No key found  |            5 |
 	+------------------------+----------------------------------------------+---------------+--------------+
 
 Note that we can use `cks update <number>` to get a previous view in time:
 
-    cks update 10 && cks list
+    cks update 2 && cks list TODO got up to here. fix bug where this fails due to arg check in cks status
 
 Gives:
 
