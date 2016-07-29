@@ -31,10 +31,10 @@
 			"revisionTime": "2016-07-19T16:51:38Z"
 		},
 		{
-			"checksumSHA1": "6vFH8wZIO7yLOwFRrxzWUzMvlPY=",
+			"checksumSHA1": "o2vX/om8SpeZtLCN4PPxXwb5EsA=",
 			"path": "github.com/continusec/go-client/continusec",
-			"revision": "0377732259382e049f093448a3be5bf9db215062",
-			"revisionTime": "2016-07-27T07:02:20Z"
+			"revision": "487177e04e73859cd051008fa0d619a1188f7926",
+			"revisionTime": "2016-07-29T05:16:13Z"
 		},
 		{
 			"checksumSHA1": "Wn/ByTXyH9rZyhYdtVQgkU1Fbf0=",

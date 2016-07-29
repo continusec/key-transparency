@@ -292,6 +292,7 @@ func (self *VerifiableMap) VerifiedLatestMapState(prev *MapTreeState) (*MapTreeS
 // as all future LogTreeHeads can also be proven to contain the MapTreeHead.
 //
 // Typical clients that only need to access current data will instead use VerifiedLatestMapState()
+// Can return nil, nil if the map is empty (and prev was nil)
 func (self *VerifiableMap) VerifiedMapState(prev *MapTreeState, treeSize int64) (*MapTreeState, error) {
 	if treeSize != 0 && prev != nil && prev.TreeSize() == treeSize {
 		return prev, nil
@@ -301,6 +302,12 @@ func (self *VerifiableMap) VerifiedMapState(prev *MapTreeState, treeSize int64) 
 	mapHead, err := self.TreeHead(treeSize)
 	if err != nil {
 		return nil, err
+	}
+
+	// Short-cut: If prev is nil, and we have no size yet, then we are nil too
+	// since while a map head may be valid, the logs can't be.
+	if prev == nil && mapHead.TreeSize() == 0 {
+		return nil, nil
 	}
 
 	// If we have a previous state, then make sure both logs are consistent with it
