@@ -1,24 +1,34 @@
+/*
+   Copyright 2016 Continusec Pty Ltd
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package main
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
 	"encoding/gob"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"math/big"
-	"net/http"
-	"os"
-	"os/user"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -26,294 +36,6 @@ import (
 	"github.com/continusec/go-client/continusec"
 	"github.com/urfave/cli"
 )
-
-// A Sig is the asn1 form of this.
-type ECDSASignature struct {
-	// R, S are as returned by ecdsa.Sign
-	R, S *big.Int
-}
-
-var (
-	ErrWrongKeyFormat   = errors.New("ErrWrongKeyFormat")
-	ErrCouldNotVerify   = errors.New("ErrCouldNotVerify")
-	ErrShouldNotGetHere = errors.New("ErrShouldNotGetHere")
-	ErrServerError      = errors.New("ErrServerError")
-)
-
-func copySlice(a []byte) []byte {
-	rv := make([]byte, len(a))
-	copy(rv, a)
-	return rv
-}
-
-type CachingVerifyingRT struct {
-	DB *bolt.DB
-}
-
-type CacheEntry struct {
-	Timestamp time.Time
-	Signature []byte
-	Data      []byte
-
-	// not for saving
-	url string
-}
-
-func (self *CachingVerifyingRT) getValFromCache(key string) (*CacheEntry, error) {
-	var entry CacheEntry
-	err := self.DB.View(func(tx *bolt.Tx) error {
-		return gob.NewDecoder(bytes.NewBuffer(tx.Bucket([]byte("cache")).Get([]byte(key)))).Decode(&entry)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &entry, nil
-}
-
-func (self *CachingVerifyingRT) getRespFromCache(key string) *http.Response {
-	entry, err := self.getValFromCache(key)
-	if err == nil {
-		return &http.Response{
-			StatusCode: 200,
-			Body:       ioutil.NopCloser(bytes.NewReader(entry.Data)),
-		}
-	} else {
-		return nil
-	}
-}
-
-func getPubKey(db *bolt.DB) ([]byte, error) {
-	var pubKey []byte
-	err := db.View(func(tx *bolt.Tx) error {
-		pubKey = tx.Bucket([]byte("conf")).Get([]byte("serverKey"))
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return pubKey, nil
-}
-
-// Only does GETs. Special cases certain GETS, like to /tree/0
-func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.Method != http.MethodGet {
-		return nil, ErrShouldNotGetHere
-	}
-
-	key := r.URL.String()
-
-	// First try cache, maybe
-	switch {
-	case strings.HasSuffix(key, "/v1/wrappedMap/log/mutation/tree/0"):
-		// no cache
-	case strings.HasSuffix(key, "/v1/wrappedMap/log/treehead/tree/0"):
-		// no cache
-	case strings.HasSuffix(key, "/v1/wrappedMap/tree/0"):
-		// no cache
-	default: // cache!
-		r2 := self.getRespFromCache(key)
-		if r2 != nil {
-			//fmt.Fprintf(os.Stderr, "Cache hit: %s\n", key)
-			return r2, nil
-		}
-	}
-
-	// Otherwise, go out and fetch
-	fmt.Fprintf(os.Stderr, "Fetching: %s\n", key)
-
-	resp, err := http.DefaultTransport.RoundTrip(r)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != 200 {
-		//fmt.Printf("%+v\n", resp)
-		return nil, ErrServerError
-	}
-
-	// Now attempt to cache
-	defer resp.Body.Close()
-
-	contents, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	sig, err := base64.StdEncoding.DecodeString(resp.Header.Get("x-body-signature"))
-	if err != nil {
-		return nil, err
-	}
-
-	// First, check sig - even for bootstrap case (of fetching key)
-	var pubKey []byte
-	if strings.HasSuffix(key, "/v1/config/serverPublicKey") {
-		pubKey = contents
-	} else {
-		pubKey, err = getPubKey(self.DB)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// Regardless, do the check
-	err = verifySignedData(contents, sig, pubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// Do we need to massage the key a little?
-	switch {
-	case strings.HasSuffix(key, "/v1/wrappedMap/log/mutation/tree/0"):
-		x := make(map[string]interface{})
-		err = json.Unmarshal(contents, &x)
-		if err != nil {
-			return nil, err
-		}
-		ts, ok := x["tree_size"].(float64)
-		if !ok {
-			return nil, ErrWrongKeyFormat
-		}
-
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(ts))
-	case strings.HasSuffix(key, "/v1/wrappedMap/log/treehead/tree/0"):
-		x := make(map[string]interface{})
-		err = json.Unmarshal(contents, &x)
-		if err != nil {
-			return nil, err
-		}
-		ts, ok := x["tree_size"].(float64)
-		if !ok {
-			return nil, ErrWrongKeyFormat
-		}
-
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(ts))
-	case strings.HasSuffix(key, "/v1/wrappedMap/tree/0"):
-		x := make(map[string]interface{})
-		err = json.Unmarshal(contents, &x)
-		if err != nil {
-			return nil, err
-		}
-		xxx, ok := x["mutation_log"].(map[string]interface{})
-		if !ok {
-			return nil, ErrWrongKeyFormat
-		}
-
-		ts, ok := xxx["tree_size"].(float64)
-		if !ok {
-			return nil, ErrWrongKeyFormat
-		}
-
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(ts))
-	}
-
-	// now see if massaged key is in cache, and if so, return that value:
-	r1 := self.getRespFromCache(key)
-	if r1 != nil {
-		return r1, nil
-	}
-
-	// else put in cache
-	buf := &bytes.Buffer{}
-	err = gob.NewEncoder(buf).Encode(&CacheEntry{
-		Timestamp: time.Now(),
-		Signature: sig,
-		Data:      contents,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = self.DB.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte("cache")).Put([]byte(key), buf.Bytes())
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &http.Response{
-		StatusCode: 200,
-		Body:       ioutil.NopCloser(bytes.NewReader(contents)),
-	}, nil
-
-}
-
-func getServer() (string, error) {
-	db, err := GetDB()
-	if err != nil {
-		return "", err
-	}
-	var server string
-	err = db.View(func(tx *bolt.Tx) error {
-		server = string(tx.Bucket([]byte("conf")).Get([]byte("server")))
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return server, nil
-}
-
-func getMap() (*continusec.VerifiableMap, error) {
-	db, err := GetDB()
-	if err != nil {
-		return nil, err
-	}
-	server, err := getServer()
-	if err != nil {
-		return nil, err
-	}
-	return &continusec.VerifiableMap{Client: continusec.DefaultClient.WithBaseUrl(server + "/v1/wrappedMap").WithHttpClient(&http.Client{Transport: &CachingVerifyingRT{DB: db}})}, nil
-}
-
-func doGet(url string) ([]byte, error) {
-	db, err := GetDB()
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := (&http.Client{Transport: &CachingVerifyingRT{DB: db}}).Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, ErrBadReturnVal
-	}
-
-	contents, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return contents, nil
-}
-
-// No side-effect
-func verifySignedData(data, sig, pub []byte) error {
-	hashed := sha256.Sum256(data)
-
-	var s ECDSASignature
-	_, err := asn1.Unmarshal(sig, &s)
-	if err != nil {
-		return err
-	}
-
-	pkey, err := x509.ParsePKIXPublicKey(pub)
-	if err != nil {
-		return err
-	}
-
-	ppkey, ok := pkey.(*ecdsa.PublicKey)
-	if !ok {
-		return ErrWrongKeyFormat
-	}
-
-	if !ecdsa.Verify(ppkey, hashed[:], s.R, s.S) {
-		return ErrCouldNotVerify
-	}
-
-	return nil
-}
 
 // Return wrapped CLI exit error
 func handleError(err error) error {
@@ -341,103 +63,8 @@ func confirmIt(prompt string) bool {
 	}
 }
 
-// Use GetDB / InitDB below
-var ourDB *bolt.DB
-
-// Get the current database, returning error if unavailable, caching if there
-func GetDB() (*bolt.DB, error) {
-	if ourDB == nil {
-		var err error
-		ourDB, err = openDB(true, false)
-		if err != nil {
-			fmt.Println("Error opening database. If this is your first time running the tool, run `cks init` to initialize the local database.")
-			return nil, err
-		}
-	}
-	return ourDB, nil
-}
-
-// Delete any existing db, create a new one
-func InitDB(server string) (*bolt.DB, error) {
-	var err error
-	ourDB, err = openDB(false, true)
-	if err != nil {
-		return nil, err
-	}
-
-	err = ourDB.Update(func(tx *bolt.Tx) error {
-		conf, err := tx.CreateBucket([]byte("conf"))
-		if err != nil {
-			return err
-		}
-
-		err = conf.Put([]byte("server"), []byte(server))
-		if err != nil {
-			return err
-		}
-
-		_, err = tx.CreateBucket([]byte("mapstate"))
-		if err != nil {
-			return err
-		}
-
-		_, err = tx.CreateBucket([]byte("cache"))
-		if err != nil {
-			return err
-		}
-
-		_, err = tx.CreateBucket([]byte("updates"))
-		if err != nil {
-			return err
-		}
-
-		_, err = tx.CreateBucket([]byte("keys"))
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return ourDB, nil
-}
-
-// Used by GetDB / InitDB
-func openDB(failIfNotThere, deleteExisting bool) (*bolt.DB, error) {
-	u, err := user.Current()
-	if err != nil {
-		return nil, err
-	}
-
-	dbPath := filepath.Join(u.HomeDir, ".cksdb")
-
-	if failIfNotThere {
-		_, err := os.Stat(dbPath)
-		if err != nil { // probabably doesn't exist
-			return nil, err
-		}
-	}
-
-	if deleteExisting {
-		err = os.Remove(dbPath)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				return nil, err
-			}
-		}
-	}
-
-	db, err := bolt.Open(dbPath, 0600, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return db, nil
-}
-
+// Run a command, ensuring that it has a database, and will wrap any returned errors
+// correctly
 func stdCmd(f func(db *bolt.DB, c *cli.Context) error) func(c *cli.Context) error {
 	return func(c *cli.Context) error {
 		db, err := GetDB()
@@ -453,4 +80,263 @@ func stdCmd(f func(db *bolt.DB, c *cli.Context) error) func(c *cli.Context) erro
 
 		return nil
 	}
+}
+
+// Copy byte slice - useful for bolt.DB calls where key, values slices are not valid
+// once the transaction is closed.
+func copySlice(a []byte) []byte {
+	rv := make([]byte, len(a))
+	copy(rv, a)
+	return rv
+}
+
+// Show text as-is if ASCII, else base64 with spacing.
+func makePretty(data []byte) string {
+	binary := false
+	for _, b := range data {
+		if b > 127 || (b < 31 && b != 9 && b != 10 && b != 13) {
+			binary = true
+			break
+		}
+	}
+	if binary {
+		s := base64.StdEncoding.EncodeToString(data)
+		rv := ""
+		for i := 0; i < len(s); i += 72 {
+			j := i + 72
+			if j > len(s) {
+				j = len(s)
+			}
+			rv += s[i:j] + "\n"
+		}
+		return rv
+	} else {
+		return string(data)
+	}
+}
+
+// Verify data signed with ECDSA public key
+func verifySignedData(data, sig, pub []byte) error {
+	hashed := sha256.Sum256(data)
+
+	var s ECDSASignature
+	_, err := asn1.Unmarshal(sig, &s)
+	if err != nil {
+		return err
+	}
+
+	pkey, err := x509.ParsePKIXPublicKey(pub)
+	if err != nil {
+		return err
+	}
+
+	ppkey, ok := pkey.(*ecdsa.PublicKey)
+	if !ok {
+		return errors.New("Public key format for the server appears incorrect. Should be ecdsa.PublicKey but unable to cast as such.")
+	}
+
+	if !ecdsa.Verify(ppkey, hashed[:], s.R, s.S) {
+		return errors.New("Verification of signed data failed.")
+	}
+
+	return nil
+}
+
+// Is this VUF result valid for this email address?
+func validateVufResult(email string, vufResult []byte) error {
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+
+	var vuf []byte
+	err = db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("conf"))
+		vuf = copySlice(b.Get([]byte("vufKey")))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	pkey, err := x509.ParsePKIXPublicKey(vuf)
+	if err != nil {
+		return err
+	}
+
+	ppkey, ok := pkey.(*rsa.PublicKey)
+	if !ok {
+		return errors.New("Public key format for the VUF appears incorrect. Should be rsa.PublicKey but unable to cast as such.")
+	}
+
+	hashed := sha256.Sum256([]byte(email))
+	return rsa.VerifyPKCS1v15(ppkey, crypto.SHA256, hashed[:], vufResult)
+}
+
+func setCurrentHead(key string, newMapState *continusec.MapTreeState) error {
+	db, err := GetDB()
+	if err != nil {
+		return err
+	}
+
+	b := &bytes.Buffer{}
+	err = gob.NewEncoder(b).Encode(newMapState)
+	if err != nil {
+		return err
+	}
+
+	return db.Update(func(tx *bolt.Tx) error {
+		err = tx.Bucket([]byte("conf")).Delete([]byte("nil" + key + "ok"))
+		if err != nil {
+			return err
+		}
+		return tx.Bucket([]byte("conf")).Put([]byte(key), b.Bytes())
+	})
+}
+
+func getCurrentHead(key string) (*continusec.MapTreeState, error) {
+	var mapState continusec.MapTreeState
+	var empty bool
+
+	db, err := GetDB()
+	if err != nil {
+		return nil, err
+	}
+
+	err = db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("conf")).Get([]byte(key))
+		if len(b) == 0 {
+			if bytes.Equal(tx.Bucket([]byte("conf")).Get([]byte("nil"+key+"ok")), []byte{1}) {
+				empty = true
+				return nil
+			} else {
+				return errors.New("Unable to find head in database.")
+			}
+		} else {
+			return gob.NewDecoder(bytes.NewReader(b)).Decode(&mapState)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if empty {
+		return nil, nil
+	} else {
+		return &mapState, nil
+	}
+}
+
+var (
+	ErrUnexpectedResult = errors.New("ErrUnexpectedResult")
+)
+
+// AddEntryResult is the data returned when setting a key in the map
+type AddEntryResult struct {
+	// MutationEntryLeafHash is the leaf hash of the entry added to the mutation log for the map.
+	// Once this has been verified to be added to the mutation log for the map, then this entry
+	// will be reflected for the map at that size (provided no conflicting operation occurred).
+	MutationEntryLeafHash []byte `json:"mutationEntryLeafHash"`
+}
+
+type UpdateResult struct {
+	// Email address that this was added for
+	Email string
+
+	// Mutation log entry as returned by the server
+	MutationLeafHash []byte
+
+	// sha256 of the value set
+	ValueHash []byte
+
+	// -1 means unknown
+	LeafIndex int64
+
+	// -1 means unknown. -2 means never took effect
+	UserSequence int64
+
+	// Timestamp when written
+	Timestamp time.Time
+}
+
+func checkUpdateListForNewness(db *bolt.DB, ms *continusec.MapTreeState) error {
+	results := make([][2][]byte, 0)
+	gotOne := func(k, v []byte) error {
+		results = append(results, [2][]byte{copySlice(k), copySlice(v)})
+		return nil
+	}
+	err := db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("updates")).ForEach(func(k, v []byte) error { return gotOne(k, v) })
+	})
+	if err != nil {
+		return err
+	}
+	for _, r := range results {
+		k := r[0]
+		v := r[1]
+
+		var ur UpdateResult
+		err := gob.NewDecoder(bytes.NewReader(v)).Decode(&ur)
+		if err != nil {
+			return err
+		}
+
+		if ur.LeafIndex == -1 {
+			vmap, err := getMap()
+			if err != nil {
+				return err
+			}
+			proof, err := vmap.MutationLog().InclusionProof(ms.TreeSize(), &continusec.AddEntryResponse{EntryLeafHash: ur.MutationLeafHash})
+			if err != nil {
+				// pass, don't return err as it may not have been sequenced yet
+			} else {
+				err = proof.Verify(&ms.MapTreeHead.MutationLogTreeHead)
+				if err != nil {
+					return err
+				}
+
+				ur.LeafIndex = proof.LeafIndex
+
+				// Next, check if the value took effect - remember to add 1 to the leaf index, e.g. mutation 6 is tree size 7
+				mapStateForMut, err := vmap.VerifiedMapState(ms, proof.LeafIndex+1)
+				if err != nil {
+					return err
+				}
+
+				// See what we can get in that map state
+				pkd, err := getVerifiedValueForMapState(ur.Email, mapStateForMut)
+				if err != nil {
+					return err
+				}
+
+				// This ought not happen - we could have conflicted with another, but not empty.
+				if pkd == nil {
+					return ErrUnexpectedResult
+				}
+
+				// Now, see if we wrote the value we wanted
+				vh := sha256.Sum256(pkd.PGPPublicKey)
+				if bytes.Equal(vh[:], ur.ValueHash) {
+					ur.UserSequence = pkd.Sequence
+				} else {
+					ur.UserSequence = -2
+				}
+
+				buffer := &bytes.Buffer{}
+				err = gob.NewEncoder(buffer).Encode(ur)
+				if err != nil {
+					return err
+				}
+
+				err = db.Update(func(tx *bolt.Tx) error {
+					return tx.Bucket([]byte("updates")).Put(k, buffer.Bytes())
+				})
+
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
