@@ -233,7 +233,7 @@ Result:
 
 Now:
 
-   cks update && cks list
+    cks update && cks list
 
 Gives:
 
@@ -248,7 +248,7 @@ Gives:
 
 Note that we can use `cks update <number>` to get a previous view in time:
 
-    cks update 2 && cks list TODO got up to here. fix bug where this fails due to arg check in cks status
+    cks update 2 && cks list //TODO got up to here. fix bug where this fails due to arg check in cks status
 
 Gives:
 
@@ -312,10 +312,11 @@ Result:
  
     <binary data>
 
-## Feedback
+# Questions / feedback?
 
-Feedback is welcome, contact us at: <info@continusec.com>
+For any questions / feedback, please open an issue in Github, or send mail to: <support@continusec.com>
 
 The primary purpose of developing the Continusec Key Server was to provide an effective demonstration of the capabilities of the [Continusec Verifiable Data Structures API](https://www.continusec.com/).
 
 We thank the [CONIKS](https://www.usenix.org/system/files/conference/usenixsecurity15/sec15-paper-melara.pdf) folk for the inspiration to build this demonstration.
+

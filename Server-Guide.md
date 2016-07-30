@@ -4,12 +4,13 @@ This project contains the source code for a [CONIKS](https://www.usenix.org/syst
 
 A running version of this code can be found at:
 
-[https://continusec-key-server.appspot.com/](https://continusec-key-server.appspot.com/)
+<https://continusec-key-server.appspot.com/> (don't be fooled by the `404` when accessing `GET /`, that's not a valid API call)
 
-And the [corresponding client](https://github.com/continusec/key-transparency/tree/master/client) can be used to access it in a more useful fashion.
+And the [corresponding client](Client-Guide.md) can be used to access it in a useful fashion.
 
-The intention of releasing this source is to show an end-to-end example of how a Verifiable Map can be used.
+The intention of releasing this source is to show an end-to-end example of how a [Verifiable Map](https://www.continusec.com/product/verifiable-map) can be used.
 
+It is suggested that readers become familiar the the [REST API Guide](REST-API.md) before reading this guide.
 
 ## Pre-requisites
 
@@ -53,9 +54,9 @@ Next, grab the code for this repository:
     
 Then make your way to the server code:
 
-    cd key-transparency/server
+    cd key-transparency/
 
-And start by copying `src/config.toml.template` to `src/config.toml` and then editing:
+And start by copying `server/config.toml.template` to `server/config.toml` and then editing:
 
 1. For the `[server]` section, leave `disable_authentication` set to `true` for now, which prevents needing a SendGrid key for sending email, and if you are planning to use Google App Engine to run the server, set `hosted_in_app_engine` to `true`.
 
@@ -77,7 +78,7 @@ This sample code is designed to run under Google App Engine (and that's the envi
 
 To run using the Google App Engine local SDK, first [download the SDK from Google](https://cloud.google.com/appengine/downloads#Google_App_Engine_SDK_for_Go), make sure that `config.toml` has `hosted_in_app_engine` set to `true` and then start using the command:
 
-    ./serve.sh
+    goapp serve server/
     
 If you wish to run it standalone, then make sure that `config.toml` has `hosted_in_app_engine` set to `false` and then start using the command:
 
@@ -92,7 +93,7 @@ Will result in output similiar to:
     $ curl -i https://continusec-key-server.appspot.com/v1/publicKey/foo@bar.com
     HTTP/1.1 200 OK
     ...
-    X-Body-Signature: MEUCIAp9SlSxAF9EyLxkfkB4fMYHPk0j/tYnJzKguGKT+fdOAiEAydAOl93IFUryJvm2oD771RKqMyK6g403QLtYsI7GgvQ=
+    X-Body-Signature: MEUCI...YsI7GgvQ=
     ...
     
     {"vufResult":"lJQGYwvSEpD....}
