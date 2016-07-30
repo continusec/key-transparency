@@ -74,5 +74,5 @@ func updateTree(db *bolt.DB, c *cli.Context) error {
 		}
 	}
 
-	return showStatus(db, c)
+	return actuallyShowStatus(db)
 }

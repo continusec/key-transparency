@@ -24,12 +24,8 @@ import (
 	"github.com/urfave/cli"
 )
 
-// Show the current status, ie head
-func showStatus(db *bolt.DB, c *cli.Context) error {
-	if c.NArg() != 0 {
-		return errors.New("unexpected arguments")
-	}
-
+// Won't arg check, so can be called from other commands
+func actuallyShowStatus(db *bolt.DB) error {
 	mapState, err := getCurrentHead("head")
 	if err != nil {
 		return err
@@ -42,4 +38,13 @@ func showStatus(db *bolt.DB, c *cli.Context) error {
 	}
 
 	return nil
+}
+
+// Show the current status, ie head
+func showStatus(db *bolt.DB, c *cli.Context) error {
+	if c.NArg() != 0 {
+		return errors.New("unexpected arguments")
+	}
+
+    return actuallyShowStatus(db)
 }
