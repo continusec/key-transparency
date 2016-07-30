@@ -31,6 +31,22 @@ The Continusec Key Server provides a [Verifiable Map](https://www.continusec.com
 
 Get the client, and use it to upload your public key. See [instructions here](Client-Guide.md).
 
+## Security and Privacy Goals
+Major security and privacy goals include:
+
+- Verifiable Transparent (auditable) log of all mutations, without being vulnerable to an offline directory harvest attack.
+
+- Ability for a typical client to efficiently verify their own key, and that of their friends, and that the state has advanced forward in time.
+
+
+Non-goals include:
+
+- Rock-solid validation of whether a party is authorized to upload a public key. Rather we make such an action transparent such that any interested party can see all changes to public keys for a user and take appropriate action if a misissued public key certificate is detected.
+
+## Future extensions
+
+It may be desired for another party to run their own Tree Head Log - in such a way all audited map states could be added their for efficient checking by clients.
+
 # Questions / feedback?
 
 For any questions / feedback, please open an issue in Github, or send mail to: <support@continusec.com>
