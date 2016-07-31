@@ -1,6 +1,12 @@
 # Continusec Key Server
 
-This project contains the source code for a [CONIKS](https://www.usenix.org/system/files/conference/usenixsecurity15/sec15-paper-melara.pdf)-inspired Key Transparency server that provides an effective demonstration of how to use the [Continusec Verifiable Data Structures API](https://www.continusec.com/) to produce a verifiable and trustworthy service.
+Although PGP Encryption has been around for over 25 years, it has been difficult to solve the problem of how to securely distribute public keys to users, so that users can be confident that they are using the correct public key for those that they communicate with.
+
+In 2015 the [CONIKS: Bringing Key Transparency to End Users](https://www.usenix.org/system/files/conference/usenixsecurity15/sec15-paper-melara.pdf) paper was published describing an innovative method for using Verifiable Data Structures to provide Key Transparency to users.
+
+The [Verifiable Maps](https://www.continusec.com/product/verifiable-map) hosted by Continusec are well suited for the type of applications envisaged by CONIKS. To that end we have built an open-source (Apache 2.0 Licensed) Key Server, and associated client, where the server is a thin wrapper over a Continusec Verifiable Map, to provide similar functionality to that outlined in the CONIKS paper.
+
+This project contains the source code for a CONIKS-inspired Key Transparency server that provides an effective demonstration of how to use the [Continusec Verifiable Data Structures API](https://www.continusec.com/) to produce a verifiable and trustworthy service.
 
 This repository consists of two sections:
 
