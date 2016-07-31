@@ -45,7 +45,7 @@ Non-goals include:
 
 ## Future extensions
 
-It may be desired for another party to run their own Tree Head Log - in such a way all audited map states could be added their for efficient checking by clients.
+It may be desirable for another party to run their own Tree Head Log - in such a way all audited map states could be added there for efficient checking by clients.
 
 # Questions / feedback?
 
