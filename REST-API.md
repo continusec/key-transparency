@@ -59,6 +59,9 @@ The key server:
 
 The `mutationEntryLeafHash` returned is suitable for polling against the mutation log for the wrapped map if desired.
 
+### Important Note
+Note that at this time the server does not attempt to validate many properties about the value that is being set. Specifically we do not check whether anything in the public key claims to be for the user being set. As such it is the responsiblity of a client to verify that any claims within the value (such as for whom the public key is valid for) before accepting the response from the server for a specific user.
+
 ## `GET /v1/publicKey/user@host.com`
 
 A public key can be retrieved for any user by making a `GET` request as follows:
