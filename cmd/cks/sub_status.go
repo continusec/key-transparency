@@ -46,5 +46,5 @@ func showStatus(db *bolt.DB, c *cli.Context) error {
 		return errors.New("unexpected arguments")
 	}
 
-    return actuallyShowStatus(db)
+	return actuallyShowStatus(db)
 }

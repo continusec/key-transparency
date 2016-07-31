@@ -138,12 +138,12 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		token, err := base64.StdEncoding.DecodeString(r.Header.Get("Authorization"))
 		if err != nil {
-			handleError(err, r, w)
+			w.WriteHeader(403)
 			return
 		}
 		err = validateToken(username, token)
 		if err != nil { // no good, fail
-			handleError(err, r, w)
+			w.WriteHeader(403)
 			return
 		}
 	}

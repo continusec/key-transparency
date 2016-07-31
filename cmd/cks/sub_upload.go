@@ -22,6 +22,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -97,7 +98,7 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 	case 204:
 		return errors.New("Key already set to this value - no mutation generated")
 	default:
-		return errors.New(fmt.Sprintf("Unexpected serve response: %d", resp.StatusCode))
+		return errors.New(fmt.Sprintf("Unexpected server response: %d", resp.StatusCode))
 	}
 
 	contents, err := ioutil.ReadAll(resp.Body)
@@ -139,12 +140,7 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 	value := buffer.Bytes()
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("updates"))
-		err := b.Put(key, value)
-		if err != nil {
-			return err
-		}
-		return nil
+		return tx.Bucket([]byte("updates")).Put(key, value)
 	})
 	if err != nil {
 		return err
