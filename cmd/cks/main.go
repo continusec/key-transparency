@@ -1,5 +1,5 @@
 /*
-   Copyright 2016 Continusec Pty Ltd
+   Copyright 2017 Continusec Pty Ltd
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ func main() {
 			Email: "adam@continusec.com",
 		},
 	}
-	app.Copyright = "(c) 2016 Continusec Pty Ltd"
+	app.Copyright = "(c) 2017 Continusec Pty Ltd"
 
 	app.Commands = []cli.Command{
 		{
