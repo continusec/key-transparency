@@ -1,6 +1,6 @@
 application: continusec-key-server
 module: default
-version: 1
+version: 2
 runtime: go
 api_version: go1
 
