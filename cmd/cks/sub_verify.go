@@ -24,7 +24,7 @@ import (
 	"fmt"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/verifiabledatastructures/pb"
 	"github.com/urfave/cli"
 )
 
@@ -62,7 +62,7 @@ func verifyGossip(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	theirLogTreeHead := &continusec.LogTreeHead{
+	theirLogTreeHead := &pb.LogTreeHashResponse{
 		TreeSize: tsr.TreeSize,
 		RootHash: tsr.Hash,
 	}
@@ -77,7 +77,7 @@ func verifyGossip(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	ourEquiv, err := vmap.TreeHeadLog().VerifiedTreeHead(&ourAuditedMapTreeState.TreeHeadLogTreeHead, theirLogTreeHead.TreeSize)
+	ourEquiv, err := vmap.TreeHeadLog().VerifiedTreeHead(ourAuditedMapTreeState.TreeHeadLogTreeHead, theirLogTreeHead.TreeSize)
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,6 @@ func verifyGossip(db *bolt.DB, c *cli.Context) error {
 			fmt.Println("Partial Success. Their gossip is consistent with our audited view, but our audit is not complete for that tree head log size. Run 'cks audit' again then retry.")
 		}
 		return nil
-	} else {
-		return errors.New("FAILURE - unable to verify consistency with our log tree head")
 	}
+	return errors.New("FAILURE - unable to verify consistency with our log tree head")
 }

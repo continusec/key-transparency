@@ -82,7 +82,7 @@ To run using the Google App Engine local SDK, first [download the SDK from Googl
     
 If you wish to run it standalone, then make sure that `config.toml` has `hosted_in_app_engine` set to `false` and then start using the command:
 
-    GOPATH=$PWD:$PWD/vendor go build cksserver && ./cksserver
+    go install github.com/continusec/key-transparency/cmd/cksserver && cksserver
 
 Either method will start the server locally on port 8080. To verify all components are running:
 
@@ -97,6 +97,91 @@ Will result in output similiar to:
     ...
     
     {"vufResult":"lJQGYwvSEpD....}
+
+### Sample configuration file
+```
+# See the README.md at:
+# https://github.com/continusec/key-transparency/blob/master/server/README.md
+# for more details on the contents of this file, including how to configure
+# Continusec.
+
+[server]
+# The base_path is used for insertion into the email templates when tokens
+# are mailed out - this can be ignored if disable_authentication is set.
+base_path = "http://localhost:8082"
+
+# If set to true, will not use base_path above, nor the SendGrid key
+# for sending messages. Instead any request to set key will be allowed.
+# This is useful for testing or bulk loads but should be disabled for real usage.
+disable_authentication = true
+
+# If set to true, will use App Engine request contexts, and urlfetch clients.
+hosted_in_app_engine = false
+
+[continusec]
+account = "0"
+map = "keys"
+mutating_key = "API key that has Set / delete map values as configured in the README"
+readonly_key = "restricted read-only API key as configured in the README"
+
+[sendgrid]
+# This section may be ignored if disable_authentication is set to true.
+secret_key = "SendGrid secret key as supplied by SendGrid"
+from_address = "user@yourserver.com"
+mail_subject = "Key Transparency Token Request"
+token_template = """Thank you for requesting an authorization token for submitting your key data.
+
+The following token has been generated and is valid for 1 hour:
+{{ .Token }}
+
+Example usage (to export your GPG public key):
+
+gpg --export {{ .Email }} | curl -H "Authorization: {{ .Token }}" -i -X PUT {{ .BasePath }}/v1/publicKey/{{ .Email }} -d @-
+
+Or, using the cks tool:
+
+gpg --export {{ .Email }} | cks upload {{ .Email }} - {{ .Token }}
+
+If you didn't make this request, then please ignore this message.
+"""
+
+[crypto]
+# This key is used to sign server responses and as such:
+# 1. Provides extra layer of security between the server and clients (prevents MITM by
+#    misissued TLS certificate).
+# 2. Provides a proof of misbehavior by the server in event of a discrepancy.
+#
+# To generate your own key:
+#
+# openssl ecparam -genkey -name prime256v1
+server_ec_private_key = """-----BEGIN EC PRIVATE KEY-----
+...
+-----END EC PRIVATE KEY-----"""
+
+# This key is used to sign tokens that are used to validate ownership
+# of email addresses. We use EC since it generates shorter signatures.
+#
+# To generate your own key:
+#
+# openssl ecparam -genkey -name prime256v1
+#
+# You could choose to use the same key as for the server key if desired.
+email_token_ec_private_key = """-----BEGIN EC PRIVATE KEY-----
+...
+-----END EC PRIVATE KEY-----"""
+
+# This key is used to create a signature that forms the basis of the
+# map key used to store the public key in the Verifiable Map.
+# We use RSA because this must be deterministic.
+#
+# To generate your own key:
+#
+# openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
+vuf_rsa_private_key = """-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----"""
+
+```
 
 ### Server Design
 

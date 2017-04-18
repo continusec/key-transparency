@@ -34,7 +34,7 @@ Type `yes` to continue, or invoke with `--yes` to bypass the prompt.
 
 If you wish to test with a different server, for example for testing your own server, invoke with the `--server` option as follows:
 
-    cks init --server http://localhost:8080
+    cks init --server http://localhost:8082
     
 During initializing any requests sent to the server will be printed, for example:
 

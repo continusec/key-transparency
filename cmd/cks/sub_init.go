@@ -83,7 +83,7 @@ func initNewServer(c *cli.Context) error {
 		}
 
 		// First, get public key
-		pubKey, err := doGet(server + "/v1/config/serverPublicKey")
+		pubKey, err := doGet(server + "/v2/config/serverPublicKey")
 		if err != nil {
 			return cli.NewExitError("Error initializing database with public key: "+err.Error(), 1)
 		}
@@ -96,7 +96,7 @@ func initNewServer(c *cli.Context) error {
 		}
 
 		// Next, get VUF
-		vufKey, err := doGet(server + "/v1/config/vufPublicKey")
+		vufKey, err := doGet(server + "/v2/config/vufPublicKey")
 		if err != nil {
 			return cli.NewExitError("Error initializing database with VUF key: "+err.Error(), 1)
 		}

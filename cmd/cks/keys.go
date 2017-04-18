@@ -24,11 +24,11 @@ import (
 	"strconv"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/verifiabledatastructures/client"
 )
 
 // Get public key data for user in a particular map state. May return nil.
-func getVerifiedValueForMapState(key string, ms *continusec.MapTreeState) (*PublicKeyData, error) {
+func getVerifiedValueForMapState(key string, ms *client.MapTreeState) (*PublicKeyData, error) {
 	res, err := getValForEmail(key, ms.TreeSize())
 	if err != nil {
 		return nil, err
@@ -46,29 +46,27 @@ func getVerifiedValueForMapState(key string, ms *continusec.MapTreeState) (*Publ
 
 	if len(res.PublicKeyValue) == 0 { // it's ok to get an empty result
 		return nil, nil
-	} else {
-		pkv := &continusec.RedactedJsonEntry{RedactedJsonBytes: res.PublicKeyValue}
-		data, err := pkv.Data()
-		if err != nil {
-			return nil, err
-		}
-
-		var pkd PublicKeyData
-		err = json.NewDecoder(bytes.NewReader(data)).Decode(&pkd)
-		if err != nil {
-			return nil, err
-		}
-
-		if pkd.Email != key {
-			return nil, errors.New("Wrong email address stored against user.")
-		}
-
-		return &pkd, nil
 	}
+	data, err := client.ShedRedacted(res.PublicKeyValue)
+	if err != nil {
+		return nil, err
+	}
+
+	var pkd PublicKeyData
+	err = json.NewDecoder(bytes.NewReader(data)).Decode(&pkd)
+	if err != nil {
+		return nil, err
+	}
+
+	if pkd.Email != key {
+		return nil, errors.New("Wrong email address stored against user.")
+	}
+
+	return &pkd, nil
 }
 
 // Change the FollowedUserRecord for a followed user to be result that matches this map state
-func updateKeyToMapState(db *bolt.DB, emailAddress string, ms *continusec.MapTreeState) error {
+func updateKeyToMapState(db *bolt.DB, emailAddress string, ms *client.MapTreeState) error {
 	pkd, err := getVerifiedValueForMapState(emailAddress, ms)
 	if err != nil {
 		return err
@@ -87,7 +85,7 @@ func updateKeyToMapState(db *bolt.DB, emailAddress string, ms *continusec.MapTre
 }
 
 // Update all followed user records
-func updateKeysToMapState(db *bolt.DB, ms *continusec.MapTreeState) error {
+func updateKeysToMapState(db *bolt.DB, ms *client.MapTreeState) error {
 	users, err := getAllFollowedUsers(db)
 	if err != nil {
 		return err
@@ -103,7 +101,7 @@ func updateKeysToMapState(db *bolt.DB, ms *continusec.MapTreeState) error {
 
 // Return a list of FollowedUserRecord for a user from newest (current to mapState) back to
 // user sequence seqToStopAt. Pass -1 to go back through all.
-func getHistoryForUser(emailAddress string, seqToStopAt int64, mapState *continusec.MapTreeState) ([]*FollowedUserRecord, error) {
+func getHistoryForUser(emailAddress string, seqToStopAt int64, mapState *client.MapTreeState) ([]*FollowedUserRecord, error) {
 	vmap, err := getMap()
 	if err != nil {
 		return nil, err
@@ -164,7 +162,7 @@ func getValForEmail(emailAddress string, treeSize int64) (*GetEntryResult, error
 		return nil, err
 	}
 
-	url := server + "/v1/publicKey/" + emailAddress + "/at/" + strconv.Itoa(int(treeSize))
+	url := server + "/v2/publicKey/" + emailAddress + "/at/" + strconv.Itoa(int(treeSize))
 
 	contents, err := doGet(url)
 	if err != nil {

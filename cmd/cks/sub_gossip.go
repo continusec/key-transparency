@@ -48,7 +48,7 @@ func showGossip(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	ce, err := (&CachingVerifyingRT{DB: db}).getValFromCache(fmt.Sprintf("%s/v1/wrappedMap/log/treehead/tree/%d", server, mapState.TreeHeadLogTreeHead.TreeSize))
+	ce, err := (&CachingVerifyingRT{DB: db}).getValFromCache(fmt.Sprintf("%s/v2/wrappedMap/log/treehead/tree/%d", server, mapState.TreeHeadLogTreeHead.TreeSize))
 	if err != nil {
 		return err
 	}

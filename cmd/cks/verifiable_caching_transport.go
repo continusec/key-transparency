@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/continusec/verifiabledatastructures/pb"
 )
 
 // Given a database with a cache bucket, use this to implement a RoundTripper that
@@ -75,9 +76,8 @@ func (self *CachingVerifyingRT) getRespFromCache(key string) *http.Response {
 			StatusCode: 200,
 			Body:       ioutil.NopCloser(bytes.NewReader(entry.Data)),
 		}
-	} else {
-		return nil
 	}
+	return nil
 }
 
 // Only does GETs. Special cases certain GETS, like /tree/0 which it won't cache.
@@ -91,11 +91,11 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 
 	// First see if it's a special case, and if not try cache
 	switch {
-	case strings.HasSuffix(key, "/v1/wrappedMap/log/mutation/tree/0"):
+	case strings.HasSuffix(key, "/v2/account/0/map/keys/log/mutation/tree/0"):
 		// no cache
-	case strings.HasSuffix(key, "/v1/wrappedMap/log/treehead/tree/0"):
+	case strings.HasSuffix(key, "/v2/account/0/map/keys/log/treehead/tree/0"):
 		// no cache
-	case strings.HasSuffix(key, "/v1/wrappedMap/tree/0"):
+	case strings.HasSuffix(key, "/v2/account/0/map/keys/0"):
 		// no cache
 	default: // cache!
 		r2 := self.getRespFromCache(key)
@@ -133,7 +133,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 
 	// First, check sig - even for bootstrap case (of fetching key)
 	var pubKey []byte
-	if strings.HasSuffix(key, "/v1/config/serverPublicKey") {
+	if strings.HasSuffix(key, "/v2/config/serverPublicKey") {
 		pubKey = contents
 	} else {
 		pubKey, err = getPubKey(self.DB)
@@ -148,50 +148,30 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 		return nil, errors.New("Unable to verify the signature of the response from the server: " + err.Error())
 	}
 
-	// For requests that were for the latest version of something, find look into the response
+	// For requests that were for the latest version of something, look into the response
 	// to find what the answer was, and thus cache that for future requests.
 	switch {
-	case strings.HasSuffix(key, "/v1/wrappedMap/log/mutation/tree/0"):
-		x := make(map[string]interface{})
-		err = json.Unmarshal(contents, &x)
+	case strings.HasSuffix(key, "/v2/account/0/map/keys/log/mutation/tree/0"):
+		var lth *pb.LogTreeHashResponse
+		err = json.Unmarshal(contents, &lth)
 		if err != nil {
 			return nil, err
 		}
-		ts, ok := x["tree_size"].(float64)
-		if !ok {
-			return nil, errors.New("Unable to get tree_size from mutation log tree head.")
-		}
-
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(ts))
-	case strings.HasSuffix(key, "/v1/wrappedMap/log/treehead/tree/0"):
-		x := make(map[string]interface{})
-		err = json.Unmarshal(contents, &x)
+		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(lth.TreeSize))
+	case strings.HasSuffix(key, "/v2/account/0/map/keys/log/treehead/tree/0"):
+		var lth *pb.LogTreeHashResponse
+		err = json.Unmarshal(contents, &lth)
 		if err != nil {
 			return nil, err
 		}
-		ts, ok := x["tree_size"].(float64)
-		if !ok {
-			return nil, errors.New("Unable to get tree_size from tree head log tree head.")
-		}
-
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(ts))
-	case strings.HasSuffix(key, "/v1/wrappedMap/tree/0"):
-		x := make(map[string]interface{})
-		err = json.Unmarshal(contents, &x)
+		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(lth.TreeSize))
+	case strings.HasSuffix(key, "/v2/account/0/map/keys/tree/0"):
+		var lth *pb.MapTreeHashResponse
+		err = json.Unmarshal(contents, &lth)
 		if err != nil {
 			return nil, err
 		}
-		xxx, ok := x["mutation_log"].(map[string]interface{})
-		if !ok {
-			return nil, errors.New("Unable to get mutation_log from map head.")
-		}
-
-		ts, ok := xxx["tree_size"].(float64)
-		if !ok {
-			return nil, errors.New("Unable to get tree_size from map head.")
-		}
-
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(ts))
+		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(lth.MutationLog.TreeSize))
 	}
 
 	// Now see if massaged key is in cache, and if so, return that value, ie if we

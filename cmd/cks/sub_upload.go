@@ -77,7 +77,7 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	url := server + "/v1/publicKey/" + emailAddress
+	url := server + "/v2/publicKey/" + emailAddress
 
 	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(pubKeyBytes))
 	if err != nil {

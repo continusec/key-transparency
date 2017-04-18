@@ -20,7 +20,7 @@ import (
 	"net/http"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/verifiabledatastructures/client"
 )
 
 // Return stored public key for server
@@ -53,9 +53,9 @@ func getServer() (string, error) {
 	return server, nil
 }
 
-// Return verifiable map with our special wrapping, verifiying, caching client for the configured
+// Return versifiable map with our special wrapping, verifiying, caching client for the configured
 // server.
-func getMap() (*continusec.VerifiableMap, error) {
+func getMap() (*client.VerifiableMap, error) {
 	db, err := GetDB()
 	if err != nil {
 		return nil, err
@@ -64,5 +64,10 @@ func getMap() (*continusec.VerifiableMap, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &continusec.VerifiableMap{Client: continusec.DefaultClient.WithBaseUrl(server + "/v1/wrappedMap").WithHttpClient(&http.Client{Transport: &CachingVerifyingRT{DB: db}})}, nil
+	return (&client.VerifiableDataStructuresClient{
+		Service: &client.HTTPRESTClient{
+			BaseUrl:    server,
+			HttpClient: &http.Client{Transport: &CachingVerifyingRT{DB: db}},
+		},
+	}).Account("0", "client").VerifiableMap("keys"), nil
 }

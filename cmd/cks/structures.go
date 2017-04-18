@@ -21,7 +21,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/verifiabledatastructures/client"
+	"github.com/continusec/verifiabledatastructures/pb"
 )
 
 // A Sig is the asn1 form of this.
@@ -118,12 +119,15 @@ type GetEntryResult struct {
 }
 
 // Verify that this result is included in the given map state
-func (ger *GetEntryResult) VerifyInclusion(ms *continusec.MapTreeState) error {
+func (ger *GetEntryResult) VerifyInclusion(ms *client.MapTreeState) error {
 	x := sha256.Sum256(ger.VUFResult)
-	return (&continusec.MapInclusionProof{
+	v, err := client.JSONEntry(ger.PublicKeyValue)
+	if err != nil {
+		return err
+	}
+	return client.VerifyMapInclusionProof(&pb.MapGetValueResponse{
 		TreeSize:  ger.TreeSize,
 		AuditPath: ger.AuditPath,
-		Value:     &continusec.RedactedJsonEntry{RedactedJsonBytes: ger.PublicKeyValue},
-		Key:       x[:],
-	}).Verify(&ms.MapTreeHead)
+		Value:     v,
+	}, x[:], ms.MapTreeHead)
 }

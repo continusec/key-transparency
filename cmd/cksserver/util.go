@@ -29,7 +29,7 @@ import (
 	"math/big"
 	"net/http"
 
-	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/verifiabledatastructures/client"
 
 	"golang.org/x/net/context"
 )
@@ -137,13 +137,10 @@ func writeAndSign(contents []byte, w http.ResponseWriter) error {
 
 // Returns a VerifiableMap object ready for manipulation using the mutating secret
 // key.
-func getMapObject(ctx context.Context) *continusec.VerifiableMap {
-	return (&continusec.Account{
-		Account: config.Continusec.Account,
-		Client: continusec.DefaultClient.
-			WithHttpClient(getHttpClient(ctx)).
-			WithApiKey(config.Continusec.MutatingKey),
-	}).VerifiableMap(config.Continusec.Map)
+func getMapObject(ctx context.Context) *client.VerifiableMap {
+	return (&client.VerifiableDataStructuresClient{
+		Service: mapService,
+	}).Account(config.Continusec.Account, config.Continusec.MutatingKey).VerifiableMap(config.Continusec.Map)
 }
 
 // Take the result of the VUF and convert this to a Verifiable Map key.

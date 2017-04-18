@@ -23,7 +23,8 @@ import (
 	"fmt"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/verifiabledatastructures/client"
+	"github.com/continusec/verifiabledatastructures/pb"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
 )
@@ -61,47 +62,41 @@ func audit(db *bolt.DB, c *cli.Context) error {
 
 	if prevMapState != nil && prevMapState.TreeHeadLogTreeHead.TreeSize >= curMapState.TreeHeadLogTreeHead.TreeSize {
 		return errors.New(fmt.Sprintf("Previous audited tree head log size (%d) is greater than or equal to current - no audit needed.\n", curMapState.TreeHeadLogTreeHead.TreeSize))
-	} else {
-		sequenceNumberPerKey := make(map[string]int64) // we use string instead of []byte since it won't hash
-		err = vmap.VerifyMap(context.Background(), prevMapState, curMapState, continusec.RedactedJsonEntryFactory, func(ctx context.Context, idx int64, key []byte, value continusec.VerifiableEntry) error {
-			mk := string(key)
+	}
+	sequenceNumberPerKey := make(map[string]int64) // we use string instead of []byte since it won't hash
+	err = vmap.VerifyMap(context.Background(), prevMapState, curMapState, client.JSONValidateObjectHash, func(ctx context.Context, idx int64, key []byte, value *pb.LeafData) error {
+		mk := string(key)
 
-			oldSeq, ok := sequenceNumberPerKey[mk]
-			if !ok {
-				oldSeq = -1 // so that new seq is correctly 0
-			}
-
-			expectedSequence := oldSeq + 1
-
-			dd, err := value.Data()
-			if err != nil {
-				return err
-			}
-
-			var pkd PublicKeyData
-			err = json.NewDecoder(bytes.NewReader(dd)).Decode(&pkd)
-			if err != nil {
-				return err
-			}
-
-			if pkd.Sequence != expectedSequence {
-				return errors.New("Improper operation of map detected - received unexpected sequence number for a user")
-			}
-
-			sequenceNumberPerKey[mk] = expectedSequence
-
-			return nil
-		})
-		if err != nil {
-			return errors.New("Error verifying correct operation of map: " + err.Error())
+		oldSeq, ok := sequenceNumberPerKey[mk]
+		if !ok {
+			oldSeq = -1 // so that new seq is correctly 0
 		}
 
-		err = setCurrentHead("auditedhead", curMapState)
+		expectedSequence := oldSeq + 1
+
+		var pkd PublicKeyData
+		err = json.NewDecoder(bytes.NewReader(value.ExtraData)).Decode(&pkd)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Audit successful to tree head log size of %d.\n", curMapState.TreeHeadLogTreeHead.TreeSize)
+		if pkd.Sequence != expectedSequence {
+			return errors.New("Improper operation of map detected - received unexpected sequence number for a user")
+		}
+
+		sequenceNumberPerKey[mk] = expectedSequence
+
 		return nil
+	})
+	if err != nil {
+		return errors.New("Error verifying correct operation of map: " + err.Error())
 	}
+
+	err = setCurrentHead("auditedhead", curMapState)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Audit successful to tree head log size of %d.\n", curMapState.TreeHeadLogTreeHead.TreeSize)
+	return nil
 }

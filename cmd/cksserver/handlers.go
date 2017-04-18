@@ -29,7 +29,7 @@ import (
 
 	"golang.org/x/crypto/openpgp/armor"
 
-	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/verifiabledatastructures/client"
 	"github.com/gorilla/mux"
 )
 
@@ -179,29 +179,20 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	keyForVuf := GetKeyForVUF(vufResult)
 
 	// Get the current value so that we can pick the next sequence
-	curVal, err := vmap.Get(keyForVuf, continusec.Head, continusec.RedactedJsonEntryFactory)
+	curVal, err := vmap.Get(keyForVuf, client.Head)
 	if err != nil {
 		handleError(err, r, w)
 		return
 	}
 
 	// Get the previous hash, since we'll need soon
-	prevHash, err := curVal.Value.LeafHash()
-	if err != nil {
-		handleError(err, r, w)
-		return
-	}
+	prevHash := client.LeafMerkleTreeHash(curVal.Value.LeafInput)
 
 	// If the prev hash IS NOT empty (if it is, we already like the default val of 0)
 	if !bytes.Equal(EmptyLeafHash[:], prevHash) {
-		ed, err := curVal.Value.Data()
-		if err != nil {
-			handleError(err, r, w)
-			return
-		}
 		// If we managed to get the value, then let's decode:
 		var pkd PublicKeyData
-		err = json.Unmarshal(ed, &pkd)
+		err = json.Unmarshal(curVal.Value.ExtraData, &pkd)
 		if err != nil {
 			handleError(err, r, w)
 			return
@@ -228,7 +219,12 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the value - will only apply if no-one else modifies.
-	aer, err := vmap.Update(keyForVuf, &continusec.RedactableJsonEntry{JsonBytes: jb}, curVal.Value)
+	v, err := client.RedactableJsonEntry(jb)
+	if err != nil {
+		handleError(err, r, w)
+		return
+	}
+	aer, err := vmap.Update(keyForVuf, v, prevHash)
 	if err != nil {
 		handleError(err, r, w)
 		return
@@ -236,7 +232,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 	b := &bytes.Buffer{}
 	err = json.NewEncoder(b).Encode(&AddEntryResult{
-		MutationEntryLeafHash: aer.EntryLeafHash,
+		MutationEntryLeafHash: aer.LeafHash(),
 	})
 	if err != nil {
 		handleError(err, r, w)
@@ -252,7 +248,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get the latest data for a map key
 func getHeadKeyHandler(w http.ResponseWriter, r *http.Request) {
-	getKeyHandler(continusec.Head, w, r)
+	getKeyHandler(client.Head, w, r)
 }
 
 // Get the data for the map key for a specific tree size
@@ -282,25 +278,19 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 	vmap := getMapObject(getContext(r))
 
 	// Get the current value - deliberate pick JSON Entry Factory since we want to return raw
-	curVal, err := vmap.Get(GetKeyForVUF(vufResult), ts, continusec.JsonEntryFactory)
+	curVal, err := vmap.Get(GetKeyForVUF(vufResult), ts)
 	if err != nil {
 		handleError(err, r, w)
 		return
 	}
 
 	// Get the public key data response
-	jd, err := curVal.Value.Data()
-	if err != nil {
-		handleError(err, r, w)
-		return
-	}
-
 	// Formulate our response object
 	result := &GetEntryResult{
 		VUFResult:      vufResult,
 		AuditPath:      curVal.AuditPath,
 		TreeSize:       curVal.TreeSize,
-		PublicKeyValue: jd,
+		PublicKeyValue: curVal.Value.ExtraData,
 	}
 
 	b := &bytes.Buffer{}
@@ -314,47 +304,4 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 
 	writeAndSign(b.Bytes(), w)
-
-}
-
-// Proxy read-only requests to the underlying map/log structures.
-// This uses the LimitedReadOnlyKey which should be configured to allow minimal access.
-func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequest("GET", "https://api.continusec.com/v1/account/"+config.Continusec.Account+"/map/"+config.Continusec.Map+"/"+r.URL.Path[len(WrappedOp):], nil)
-	if err != nil {
-		handleError(err, r, w)
-		return
-	}
-	req.Header.Set("Authorization", "Key "+config.Continusec.LimitedReadOnlyKey)
-
-	resp, err := getHttpClient(getContext(r)).Do(req)
-	if err != nil {
-		handleError(err, r, w)
-		return
-	}
-
-	contents, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		handleError(err, r, w)
-		return
-	}
-
-	actualHeader, ok := resp.Header[http.CanonicalHeaderKey("X-Verified-Proof")]
-	if ok {
-		w.Header().Set("x-verified-proof", strings.Join(actualHeader, ","))
-	}
-
-	actualHeader, ok = resp.Header[http.CanonicalHeaderKey("X-Verified-TreeSize")]
-	if ok {
-		w.Header().Set("x-verified-treesize", strings.Join(actualHeader, ","))
-	}
-
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	if resp.StatusCode == 200 {
-		writeAndSign(contents, w)
-	} else {
-		w.WriteHeader(resp.StatusCode)
-		w.Write(contents)
-	}
 }

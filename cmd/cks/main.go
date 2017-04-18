@@ -29,7 +29,7 @@ func main() {
 
 	app.Name = "cks"
 	app.Usage = "utility for interaction with the Continusec Key Server"
-	app.Version = "v0.1"
+	app.Version = "v0.2"
 	app.Compiled = time.Now()
 	app.Authors = []cli.Author{
 		cli.Author{

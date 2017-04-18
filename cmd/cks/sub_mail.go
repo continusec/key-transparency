@@ -45,7 +45,7 @@ func mailToken(db *bolt.DB, c *cli.Context) error {
 			return err
 		}
 
-		resp, err := http.Post(server+"/v1/sendToken/"+emailAddress, "", nil)
+		resp, err := http.Post(server+"/v2/sendToken/"+emailAddress, "", nil)
 		if err != nil {
 			return err
 		}

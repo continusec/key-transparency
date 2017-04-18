@@ -17,7 +17,8 @@
 package main
 
 import (
-	sendgrid "github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"golang.org/x/net/context"
 )
 
@@ -25,16 +26,17 @@ import (
 // sendgrid-go mail client, specifically revision d88aa4dd8b2a9df3a9693d35d4d0f686b3bcff9a
 // at time of writing. Newer versions are not currently compatible with Google App Engine.
 func sendMail(ctx context.Context, sender string, recipients []string, subject, body string) error {
-	sg := sendgrid.NewSendGridClientWithApiKey(config.SendGrid.SecretKey)
-	sg.Client = getHttpClient(ctx)
-
-	message := sendgrid.NewMail()
 	for _, recip := range recipients {
-		message.AddTo(recip)
-	}
-	message.SetSubject(subject)
-	message.SetText(body)
-	message.SetFrom(sender)
 
-	return sg.Send(message)
+		m := mail.NewV3MailInit(mail.NewEmail(sender, sender), subject, mail.NewEmail(recip, recip), mail.NewContent("text/plain", body))
+
+		request := sendgrid.GetRequest(config.SendGrid.SecretKey, "/v3/mail/send", "https://api.sendgrid.com")
+		request.Method = "POST"
+		request.Body = mail.GetRequestBody(m)
+		_, err := sendgrid.API(request)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

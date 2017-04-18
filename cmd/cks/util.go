@@ -32,7 +32,7 @@ import (
 	"strings"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/go-client/continusec"
+	"github.com/continusec/verifiabledatastructures/client"
 	"github.com/urfave/cli"
 )
 
@@ -104,9 +104,8 @@ func makePretty(data []byte) string {
 			rv += s[i:j] + "\n"
 		}
 		return rv
-	} else {
-		return string(data)
 	}
+	return string(data)
 }
 
 // Verify data signed with ECDSA public key
@@ -168,7 +167,7 @@ func validateVufResult(email string, vufResult []byte) error {
 }
 
 // Set current head value. key is usually "head"
-func setCurrentHead(key string, newMapState *continusec.MapTreeState) error {
+func setCurrentHead(key string, newMapState *client.MapTreeState) error {
 	db, err := GetDB()
 	if err != nil {
 		return err
@@ -190,8 +189,8 @@ func setCurrentHead(key string, newMapState *continusec.MapTreeState) error {
 }
 
 // Get current head value. key is usually "head"
-func getCurrentHead(key string) (*continusec.MapTreeState, error) {
-	var mapState continusec.MapTreeState
+func getCurrentHead(key string) (*client.MapTreeState, error) {
+	var mapState client.MapTreeState
 	var empty bool
 
 	db, err := GetDB()
@@ -205,12 +204,10 @@ func getCurrentHead(key string) (*continusec.MapTreeState, error) {
 			if bytes.Equal(tx.Bucket([]byte("conf")).Get([]byte("nil"+key+"ok")), []byte{1}) {
 				empty = true
 				return nil
-			} else {
-				return errors.New("Unable to find head in database.")
 			}
-		} else {
-			return gob.NewDecoder(bytes.NewReader(b)).Decode(&mapState)
+			return errors.New("Unable to find head in database")
 		}
+		return gob.NewDecoder(bytes.NewReader(b)).Decode(&mapState)
 	})
 	if err != nil {
 		return nil, err
@@ -218,7 +215,6 @@ func getCurrentHead(key string) (*continusec.MapTreeState, error) {
 
 	if empty {
 		return nil, nil
-	} else {
-		return &mapState, nil
 	}
+	return &mapState, nil
 }
