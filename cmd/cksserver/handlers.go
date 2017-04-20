@@ -219,7 +219,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the value - will only apply if no-one else modifies.
-	v, err := client.RedactableJsonEntry(jb)
+	v, err := client.CreateRedactableJSONLeafData(jb)
 	if err != nil {
 		handleError(err, r, w)
 		return

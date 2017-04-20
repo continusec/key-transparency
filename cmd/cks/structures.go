@@ -121,7 +121,7 @@ type GetEntryResult struct {
 // Verify that this result is included in the given map state
 func (ger *GetEntryResult) VerifyInclusion(ms *client.MapTreeState) error {
 	x := sha256.Sum256(ger.VUFResult)
-	v, err := client.JSONEntry(ger.PublicKeyValue)
+	v, err := client.CreateJSONLeafData(ger.PublicKeyValue)
 	if err != nil {
 		return err
 	}

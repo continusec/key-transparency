@@ -47,7 +47,7 @@ func getVerifiedValueForMapState(key string, ms *client.MapTreeState) (*PublicKe
 	if len(res.PublicKeyValue) == 0 { // it's ok to get an empty result
 		return nil, nil
 	}
-	data, err := client.ShedRedacted(res.PublicKeyValue)
+	data, err := client.ShedRedactedJSONFields(res.PublicKeyValue)
 	if err != nil {
 		return nil, err
 	}

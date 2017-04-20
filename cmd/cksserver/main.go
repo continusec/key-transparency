@@ -36,14 +36,14 @@ func init() {
 	// Embed our our Verifiable Data Structures service
 	db := &kvstore.TransientHashMapStorage{}
 	mapService = &api.LocalService{
-		AccessPolicy: &api.StaticOracle{},
+		AccessPolicy: &api.AnythingGoesOracle{},
 		Mutator: &api.InstantMutator{
 			Writer: db,
 		},
 		Reader: db,
 	}
 	readOnlyMapService := &api.LocalService{
-		AccessPolicy: &api.StaticOracle{},
+		AccessPolicy: &api.AnythingGoesOracle{},
 		Reader:       db,
 	}
 
