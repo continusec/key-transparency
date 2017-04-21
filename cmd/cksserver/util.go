@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -122,23 +123,67 @@ func ecSign(data []byte, key *ecdsa.PrivateKey) ([]byte, error) {
 	return sig, nil
 }
 
-// Write this data to an HttpResponse and then add a signature header.
-func writeAndSign(contents []byte, w http.ResponseWriter) error {
-	sig, err := ecSign(contents, serverPrivateKey)
-	if err != nil {
-		return err
+type responseGrabber struct {
+	Contents *bytes.Buffer
+	hdr      http.Header
+	Status   int
+}
+
+func (rg *responseGrabber) Header() http.Header {
+	if rg.hdr == nil {
+		rg.hdr = make(http.Header)
 	}
+	return rg.hdr
+}
 
+func (rg *responseGrabber) Write(b []byte) (int, error) {
+	if rg.Contents == nil {
+		rg.Contents = &bytes.Buffer{}
+	}
+	return rg.Contents.Write(b)
+}
+
+func (rg *responseGrabber) WriteHeader(s int) {
+	rg.Status = s
+}
+
+type signingWrapper struct {
+	H http.Handler
+}
+
+func (wr *signingWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	respWrapper := &responseGrabber{}
+	wr.H.ServeHTTP(respWrapper, r)
+	var b []byte
+	if respWrapper.Contents != nil {
+		b = respWrapper.Contents.Bytes()
+	}
+	sig, err := ecSign(b, serverPrivateKey)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	for k, v := range respWrapper.Header() {
+		w.Header()[k] = v
+	}
 	w.Header().Set("X-Body-Signature", base64.StdEncoding.EncodeToString(sig))
-	_, err = w.Write(contents)
+	if respWrapper.Status == 0 {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(respWrapper.Status)
+	}
+	w.Write(b)
+}
 
-	return err
+// Write this data to an HttpResponse and then add a signature header.
+func signItHandler(h http.Handler) http.Handler {
+	return &signingWrapper{H: h}
 }
 
 // Returns a VerifiableMap object ready for manipulation using the mutating secret
 // key.
 func getMapObject(ctx context.Context) *verifiabledatastructures.VerifiableMap {
-	return mapService.Account(config.Continusec.Account, config.Continusec.MutatingKey).VerifiableMap(config.Continusec.Map)
+	return mapService.Account("0", "mutating").VerifiableMap("keys")
 }
 
 // Take the result of the VUF and convert this to a Verifiable Map key.

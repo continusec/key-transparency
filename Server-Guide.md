@@ -14,6 +14,18 @@ It is suggested that readers become familiar the the [REST API Guide](REST-API.m
 
 ## Pre-requisites
 
+Rebuild server and client:
+
+```bash
+go install github.com/continusec/key-transparency/cmd/{cks,cksserver}
+```
+
+Run client talking to server:
+
+```bash
+cks init --server http://localhost:8082 --yes
+```
+
 
 ### Installing Golang
 

@@ -69,5 +69,5 @@ func getMap() (*verifiabledatastructures.VerifiableMap, error) {
 			BaseURL:    server,
 			HTTPClient: &http.Client{Transport: &CachingVerifyingRT{DB: db}},
 		}).MustDial(),
-	}).Account("0", "client").VerifiableMap("keys"), nil
+	}).Account("0", "").VerifiableMap("keys"), nil
 }

@@ -95,7 +95,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 		// no cache
 	case strings.HasSuffix(key, "/v2/account/0/map/keys/log/treehead/tree/0"):
 		// no cache
-	case strings.HasSuffix(key, "/v2/account/0/map/keys/0"):
+	case strings.HasSuffix(key, "/v2/account/0/map/keys/tree/0"):
 		// no cache
 	default: // cache!
 		r2 := self.getRespFromCache(key)
@@ -148,6 +148,8 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 		return nil, errors.New("Unable to verify the signature of the response from the server: " + err.Error())
 	}
 
+	var actSize int64
+
 	// For requests that were for the latest version of something, look into the response
 	// to find what the answer was, and thus cache that for future requests.
 	switch {
@@ -157,21 +159,30 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 		if err != nil {
 			return nil, err
 		}
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(lth.TreeSize))
+		if lth != nil {
+			actSize = lth.TreeSize
+		}
+		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(actSize))
 	case strings.HasSuffix(key, "/v2/account/0/map/keys/log/treehead/tree/0"):
 		var lth *pb.LogTreeHashResponse
 		err = json.Unmarshal(contents, &lth)
 		if err != nil {
 			return nil, err
 		}
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(lth.TreeSize))
+		if lth != nil {
+			actSize = lth.TreeSize
+		}
+		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(actSize))
 	case strings.HasSuffix(key, "/v2/account/0/map/keys/tree/0"):
 		var lth *pb.MapTreeHashResponse
 		err = json.Unmarshal(contents, &lth)
 		if err != nil {
 			return nil, err
 		}
-		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(lth.MutationLog.TreeSize))
+		if lth != nil && lth.MutationLog != nil {
+			actSize = lth.MutationLog.TreeSize
+		}
+		key = key[:strings.LastIndex(key, "/")+1] + strconv.Itoa(int(actSize))
 	}
 
 	// Now see if massaged key is in cache, and if so, return that value, ie if we
@@ -183,7 +194,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 		return r1, nil
 	}
 
-	// Finally, store in the cach
+	// Finally, store in the cache
 	buf := &bytes.Buffer{}
 	err = gob.NewEncoder(buf).Encode(&CacheEntry{
 		Timestamp: time.Now(),

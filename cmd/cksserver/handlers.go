@@ -83,14 +83,13 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 func sendVUFPublicKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/binary")
 
-	writeAndSign(vufPublicKeyBytes, w)
+	w.Write(vufPublicKeyBytes)
 }
 
 // Respond with a DER-encoded Server Public Key
 func sendServerPublicKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/binary")
-
-	writeAndSign(serverPublicKeyBytes, w)
+	w.Write(serverPublicKeyBytes)
 }
 
 var (
@@ -191,8 +190,14 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	// If the prev hash IS NOT empty (if it is, we already like the default val of 0)
 	if !bytes.Equal(EmptyLeafHash[:], prevHash) {
 		// If we managed to get the value, then let's decode:
+		shedBytes, err := verifiabledatastructures.ShedRedactedJSONFields(curVal.Value.ExtraData)
+		if err != nil {
+			handleError(err, r, w)
+			return
+		}
+
 		var pkd PublicKeyData
-		err = json.Unmarshal(curVal.Value.ExtraData, &pkd)
+		err = json.Unmarshal(shedBytes, &pkd)
 		if err != nil {
 			handleError(err, r, w)
 			return
@@ -242,8 +247,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	// And write the result, which is the leaf hash of the mutation entry which can be polled
 	// for sequencing against the mutation log if desired.
 	w.Header().Set("Content-Type", "text/plain")
-
-	writeAndSign(b.Bytes(), w)
+	w.Write(b.Bytes())
 }
 
 // Get the latest data for a map key
@@ -302,6 +306,5 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 
 	// And write the results
 	w.Header().Set("Content-Type", "text/plain")
-
-	writeAndSign(b.Bytes(), w)
+	w.Write(b.Bytes())
 }

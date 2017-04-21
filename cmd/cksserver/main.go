@@ -33,7 +33,9 @@ func init() {
 	}
 
 	// Embed our our Verifiable Data Structures service
-	db := &verifiabledatastructures.TransientHashMapStorage{}
+	db := &verifiabledatastructures.BoltBackedService{
+		Path: "bolt.db",
+	}
 	mapService = &verifiabledatastructures.Client{
 		Service: (&verifiabledatastructures.LocalService{
 			AccessPolicy: &verifiabledatastructures.StaticOracle{
@@ -46,12 +48,6 @@ func init() {
 								Permissions:   []pb.Permission{pb.Permission_PERM_ALL_PERMISSIONS},
 								NameMatch:     "*",
 								AllowedFields: []string{"*"},
-							},
-							{
-								ApiKey:        "read",
-								Permissions:   []pb.Permission{pb.Permission_PERM_MAP_GET_VALUE},
-								NameMatch:     "*",
-								AllowedFields: []string{""},
 							},
 						},
 					},
@@ -70,10 +66,14 @@ func init() {
 					Id: "0",
 					Policy: []*pb.AccessPolicy{
 						{
-							ApiKey:        "*",
-							Permissions:   []pb.Permission{pb.Permission_PERM_MAP_GET_VALUE},
-							NameMatch:     "*",
-							AllowedFields: []string{""},
+							ApiKey: "*",
+							Permissions: []pb.Permission{
+								pb.Permission_PERM_MAP_GET_VALUE,
+								pb.Permission_PERM_MAP_MUTATION_READ_ENTRY,
+								pb.Permission_PERM_MAP_MUTATION_READ_HASH,
+							},
+							NameMatch:     "keys",
+							AllowedFields: []string{"sequence"}, // the only field that auditors need
 						},
 					},
 				},
@@ -105,7 +105,7 @@ func init() {
 	// Handle direct operations on underlying map and log - make sure we use a low privileged key
 	r.HandleFunc("/{wrappedOp:.*}", verifiabledatastructures.CreateRESTHandler(readOnlyMapService).ServeHTTP).Methods("GET")
 
-	http.Handle("/", r)
+	http.Handle("/", signItHandler(r))
 }
 
 // Main method included so that this can be run without Google App Engine if desired.

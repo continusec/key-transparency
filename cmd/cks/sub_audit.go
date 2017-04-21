@@ -74,8 +74,13 @@ func audit(db *bolt.DB, c *cli.Context) error {
 
 		expectedSequence := oldSeq + 1
 
+		shedBytes, err := verifiabledatastructures.ShedRedactedJSONFields(value.ExtraData)
+		if err != nil {
+			return errors.New("Unable to properly decode redacted field")
+		}
+
 		var pkd PublicKeyData
-		err = json.NewDecoder(bytes.NewReader(value.ExtraData)).Decode(&pkd)
+		err = json.NewDecoder(bytes.NewReader(shedBytes)).Decode(&pkd)
 		if err != nil {
 			return err
 		}
