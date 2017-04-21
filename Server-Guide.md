@@ -1,6 +1,6 @@
 # Continusec Key Server
 
-This project contains the source code for a [CONIKS](https://www.usenix.org/system/files/conference/usenixsecurity15/sec15-paper-melara.pdf)-inspired Key Transparency server that provides an effective demonstration of how to use the [Continusec Verifiable Data Structures API](https://www.continusec.com/) to produce a trustworthy service.
+This project contains the source code for a [CONIKS](https://www.usenix.org/system/files/conference/usenixsecurity15/sec15-paper-melara.pdf)-inspired Key Transparency server that provides an effective demonstration of how to use the [Continusec Verifiable Data Structures API](https://www.continusec.com/product/verifiable-data-structures) to produce a trustworthy service.
 
 A running version of this code can be found at:
 
@@ -8,39 +8,12 @@ A running version of this code can be found at:
 
 And the [corresponding client](Client-Guide.md) can be used to access it in a useful fashion.
 
-The intention of releasing this source is to show an end-to-end example of how a [Verifiable Map](https://www.continusec.com/product/verifiable-map) can be used.
+The intention of releasing this source is to show an end-to-end example of how a Verifiable Map can be used.
 
 It is suggested that readers become familiar the the [REST API Guide](REST-API.md) before reading this guide.
 
 ## Pre-requisites
 
-If you want to run your own instance of a Continusec Key Server, please begin by [creating an account at Continusec](https://console.continusec.com/).
-
-### Configuring Continusec
-
-Once you have a Continusec account:
-
-1. Take note of the account number assigned by Continusec.
-2. Create a new Verifiable Map object and take note of the name.
-3. Create a first access rule with:
-	- a generated API key (take note of this for later)
-	- no log permissions
-	- The following map permissions:
-	   - Set / delete map values
-	   - Get value / inclusion proof for map keys
-   - no account permissions
-   - `Logs / maps permitted` set to name of the map created earlier
-   - `Redacted Fields Allowed` set to `*`
-3. Create a second more restricted access rule with:
-	- a generated API key (take note of this for later)
-	- no log permissions
-	- The following map permissions:
-	   - Get value / inclusion proof for map keys
-      - Read map mutation log entries
-      - Read map mutation log tree hashes, and map tree head log
-   - no account permissions
-   - `Logs / maps permitted` set to name of the map created earlier
-   - `Redacted Fields Allowed` set to `sequence,action,key,value,previous,timestamp,mutation_log/*,map_hash`
 
 ### Installing Golang
 

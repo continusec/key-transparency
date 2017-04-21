@@ -32,7 +32,7 @@ import (
 	"strings"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/verifiabledatastructures/client"
+	"github.com/continusec/verifiabledatastructures"
 	"github.com/urfave/cli"
 )
 
@@ -167,7 +167,7 @@ func validateVufResult(email string, vufResult []byte) error {
 }
 
 // Set current head value. key is usually "head"
-func setCurrentHead(key string, newMapState *client.MapTreeState) error {
+func setCurrentHead(key string, newMapState *verifiabledatastructures.MapTreeState) error {
 	db, err := GetDB()
 	if err != nil {
 		return err
@@ -189,8 +189,8 @@ func setCurrentHead(key string, newMapState *client.MapTreeState) error {
 }
 
 // Get current head value. key is usually "head"
-func getCurrentHead(key string) (*client.MapTreeState, error) {
-	var mapState client.MapTreeState
+func getCurrentHead(key string) (*verifiabledatastructures.MapTreeState, error) {
+	var mapState verifiabledatastructures.MapTreeState
 	var empty bool
 
 	db, err := GetDB()

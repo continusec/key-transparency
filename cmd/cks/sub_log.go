@@ -26,7 +26,7 @@ import (
 	"strconv"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/verifiabledatastructures/client"
+	"github.com/continusec/verifiabledatastructures"
 	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli"
 )
@@ -94,7 +94,7 @@ func listUpdates(db *bolt.DB, c *cli.Context) error {
 }
 
 // Update any updates that we don't have status for
-func checkUpdateListForNewness(db *bolt.DB, ms *client.MapTreeState) error {
+func checkUpdateListForNewness(db *bolt.DB, ms *verifiabledatastructures.MapTreeState) error {
 	results := make([][2][]byte, 0)
 	gotOne := func(k, v []byte) error {
 		results = append(results, [2][]byte{copySlice(k), copySlice(v)})
@@ -126,7 +126,7 @@ func checkUpdateListForNewness(db *bolt.DB, ms *client.MapTreeState) error {
 				continue
 			}
 
-			err = client.VerifyLogInclusionProof(proof, ur.MutationLeafHash, ms.MapTreeHead.MutationLog)
+			err = verifiabledatastructures.VerifyLogInclusionProof(proof, ur.MutationLeafHash, ms.MapTreeHead.MutationLog)
 			if err != nil {
 				return err
 			}

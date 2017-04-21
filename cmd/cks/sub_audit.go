@@ -23,7 +23,7 @@ import (
 	"fmt"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/verifiabledatastructures/client"
+	"github.com/continusec/verifiabledatastructures"
 	"github.com/continusec/verifiabledatastructures/pb"
 	"github.com/urfave/cli"
 	"golang.org/x/net/context"
@@ -64,7 +64,7 @@ func audit(db *bolt.DB, c *cli.Context) error {
 		return errors.New(fmt.Sprintf("Previous audited tree head log size (%d) is greater than or equal to current - no audit needed.\n", curMapState.TreeHeadLogTreeHead.TreeSize))
 	}
 	sequenceNumberPerKey := make(map[string]int64) // we use string instead of []byte since it won't hash
-	err = vmap.VerifyMap(context.Background(), prevMapState, curMapState, client.ValidateJSONLeafData, func(ctx context.Context, idx int64, key []byte, value *pb.LeafData) error {
+	err = vmap.VerifyMap(context.Background(), prevMapState, curMapState, verifiabledatastructures.ValidateJSONLeafData, func(ctx context.Context, idx int64, key []byte, value *pb.LeafData) error {
 		mk := string(key)
 
 		oldSeq, ok := sequenceNumberPerKey[mk]

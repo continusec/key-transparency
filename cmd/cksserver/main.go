@@ -20,9 +20,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/continusec/verifiabledatastructures/api"
-	"github.com/continusec/verifiabledatastructures/apife"
-	"github.com/continusec/verifiabledatastructures/kvstore"
+	"github.com/continusec/verifiabledatastructures"
+	"github.com/continusec/verifiabledatastructures/pb"
 	"github.com/gorilla/mux"
 )
 
@@ -34,18 +33,54 @@ func init() {
 	}
 
 	// Embed our our Verifiable Data Structures service
-	db := &kvstore.TransientHashMapStorage{}
-	mapService = &api.LocalService{
-		AccessPolicy: &api.AnythingGoesOracle{},
-		Mutator: &api.InstantMutator{
-			Writer: db,
+	db := &verifiabledatastructures.TransientHashMapStorage{}
+	mapService = &verifiabledatastructures.Client{
+		Service: (&verifiabledatastructures.LocalService{
+			AccessPolicy: &verifiabledatastructures.StaticOracle{
+				Policy: []*pb.ResourceAccount{
+					{
+						Id: "0",
+						Policy: []*pb.AccessPolicy{
+							{
+								ApiKey:        "mutating",
+								Permissions:   []pb.Permission{pb.Permission_PERM_ALL_PERMISSIONS},
+								NameMatch:     "*",
+								AllowedFields: []string{"*"},
+							},
+							{
+								ApiKey:        "read",
+								Permissions:   []pb.Permission{pb.Permission_PERM_MAP_GET_VALUE},
+								NameMatch:     "*",
+								AllowedFields: []string{""},
+							},
+						},
+					},
+				},
+			},
+			Mutator: &verifiabledatastructures.InstantMutator{
+				Writer: db,
+			},
+			Reader: db,
+		}).MustCreate(),
+	}
+	readOnlyMapService := (&verifiabledatastructures.LocalService{
+		AccessPolicy: &verifiabledatastructures.StaticOracle{
+			Policy: []*pb.ResourceAccount{
+				{
+					Id: "0",
+					Policy: []*pb.AccessPolicy{
+						{
+							ApiKey:        "*",
+							Permissions:   []pb.Permission{pb.Permission_PERM_MAP_GET_VALUE},
+							NameMatch:     "*",
+							AllowedFields: []string{""},
+						},
+					},
+				},
+			},
 		},
 		Reader: db,
-	}
-	readOnlyMapService := &api.LocalService{
-		AccessPolicy: &api.AnythingGoesOracle{},
-		Reader:       db,
-	}
+	}).MustCreate()
 
 	r := mux.NewRouter()
 
@@ -68,7 +103,7 @@ func init() {
 	r.HandleFunc("/v2/publicKey/{user:.*}", getHeadKeyHandler).Methods("GET")
 
 	// Handle direct operations on underlying map and log - make sure we use a low privileged key
-	r.HandleFunc("/{wrappedOp:.*}", apife.CreateRESTHandler(readOnlyMapService).ServeHTTP).Methods("GET")
+	r.HandleFunc("/{wrappedOp:.*}", verifiabledatastructures.CreateRESTHandler(readOnlyMapService).ServeHTTP).Methods("GET")
 
 	http.Handle("/", r)
 }
@@ -79,7 +114,7 @@ func init() {
 // GOPATH=$PWD/../vendor:$PWD go run *.go
 
 var (
-	mapService *api.LocalService
+	mapService *verifiabledatastructures.Client
 )
 
 func main() {

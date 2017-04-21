@@ -29,7 +29,7 @@ import (
 
 	"golang.org/x/crypto/openpgp/armor"
 
-	"github.com/continusec/verifiabledatastructures/client"
+	"github.com/continusec/verifiabledatastructures"
 	"github.com/gorilla/mux"
 )
 
@@ -179,14 +179,14 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	keyForVuf := GetKeyForVUF(vufResult)
 
 	// Get the current value so that we can pick the next sequence
-	curVal, err := vmap.Get(keyForVuf, client.Head)
+	curVal, err := vmap.Get(keyForVuf, verifiabledatastructures.Head)
 	if err != nil {
 		handleError(err, r, w)
 		return
 	}
 
 	// Get the previous hash, since we'll need soon
-	prevHash := client.LeafMerkleTreeHash(curVal.Value.LeafInput)
+	prevHash := verifiabledatastructures.LeafMerkleTreeHash(curVal.Value.LeafInput)
 
 	// If the prev hash IS NOT empty (if it is, we already like the default val of 0)
 	if !bytes.Equal(EmptyLeafHash[:], prevHash) {
@@ -219,7 +219,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the value - will only apply if no-one else modifies.
-	v, err := client.CreateRedactableJSONLeafData(jb)
+	v, err := verifiabledatastructures.CreateRedactableJSONLeafData(jb)
 	if err != nil {
 		handleError(err, r, w)
 		return
@@ -248,7 +248,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 // Get the latest data for a map key
 func getHeadKeyHandler(w http.ResponseWriter, r *http.Request) {
-	getKeyHandler(client.Head, w, r)
+	getKeyHandler(verifiabledatastructures.Head, w, r)
 }
 
 // Get the data for the map key for a specific tree size

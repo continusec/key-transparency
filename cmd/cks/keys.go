@@ -24,11 +24,11 @@ import (
 	"strconv"
 
 	"github.com/boltdb/bolt"
-	"github.com/continusec/verifiabledatastructures/client"
+	"github.com/continusec/verifiabledatastructures"
 )
 
 // Get public key data for user in a particular map state. May return nil.
-func getVerifiedValueForMapState(key string, ms *client.MapTreeState) (*PublicKeyData, error) {
+func getVerifiedValueForMapState(key string, ms *verifiabledatastructures.MapTreeState) (*PublicKeyData, error) {
 	res, err := getValForEmail(key, ms.TreeSize())
 	if err != nil {
 		return nil, err
@@ -47,7 +47,7 @@ func getVerifiedValueForMapState(key string, ms *client.MapTreeState) (*PublicKe
 	if len(res.PublicKeyValue) == 0 { // it's ok to get an empty result
 		return nil, nil
 	}
-	data, err := client.ShedRedactedJSONFields(res.PublicKeyValue)
+	data, err := verifiabledatastructures.ShedRedactedJSONFields(res.PublicKeyValue)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func getVerifiedValueForMapState(key string, ms *client.MapTreeState) (*PublicKe
 }
 
 // Change the FollowedUserRecord for a followed user to be result that matches this map state
-func updateKeyToMapState(db *bolt.DB, emailAddress string, ms *client.MapTreeState) error {
+func updateKeyToMapState(db *bolt.DB, emailAddress string, ms *verifiabledatastructures.MapTreeState) error {
 	pkd, err := getVerifiedValueForMapState(emailAddress, ms)
 	if err != nil {
 		return err
@@ -85,7 +85,7 @@ func updateKeyToMapState(db *bolt.DB, emailAddress string, ms *client.MapTreeSta
 }
 
 // Update all followed user records
-func updateKeysToMapState(db *bolt.DB, ms *client.MapTreeState) error {
+func updateKeysToMapState(db *bolt.DB, ms *verifiabledatastructures.MapTreeState) error {
 	users, err := getAllFollowedUsers(db)
 	if err != nil {
 		return err
@@ -101,7 +101,7 @@ func updateKeysToMapState(db *bolt.DB, ms *client.MapTreeState) error {
 
 // Return a list of FollowedUserRecord for a user from newest (current to mapState) back to
 // user sequence seqToStopAt. Pass -1 to go back through all.
-func getHistoryForUser(emailAddress string, seqToStopAt int64, mapState *client.MapTreeState) ([]*FollowedUserRecord, error) {
+func getHistoryForUser(emailAddress string, seqToStopAt int64, mapState *verifiabledatastructures.MapTreeState) ([]*FollowedUserRecord, error) {
 	vmap, err := getMap()
 	if err != nil {
 		return nil, err

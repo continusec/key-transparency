@@ -21,7 +21,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/continusec/verifiabledatastructures/client"
+	"github.com/continusec/verifiabledatastructures"
 	"github.com/continusec/verifiabledatastructures/pb"
 )
 
@@ -119,13 +119,13 @@ type GetEntryResult struct {
 }
 
 // Verify that this result is included in the given map state
-func (ger *GetEntryResult) VerifyInclusion(ms *client.MapTreeState) error {
+func (ger *GetEntryResult) VerifyInclusion(ms *verifiabledatastructures.MapTreeState) error {
 	x := sha256.Sum256(ger.VUFResult)
-	v, err := client.CreateJSONLeafData(ger.PublicKeyValue)
+	v, err := verifiabledatastructures.CreateJSONLeafData(ger.PublicKeyValue)
 	if err != nil {
 		return err
 	}
-	return client.VerifyMapInclusionProof(&pb.MapGetValueResponse{
+	return verifiabledatastructures.VerifyMapInclusionProof(&pb.MapGetValueResponse{
 		TreeSize:  ger.TreeSize,
 		AuditPath: ger.AuditPath,
 		Value:     v,
