@@ -23,19 +23,9 @@ import (
 	normallog "log"
 
 	"golang.org/x/net/context"
-	"google.golang.org/appengine"
 	gaelog "google.golang.org/appengine/log"
 	"google.golang.org/appengine/urlfetch"
 )
-
-// Returns a context object
-func getContext(request *http.Request) context.Context {
-	if config.Server.HostedInGAE {
-		return appengine.NewContext(request)
-	} else {
-		return context.Background()
-	}
-}
 
 // Return an HttpClient with a decent timeout
 func getHttpClient(ctx context.Context) *http.Client {
@@ -44,10 +34,9 @@ func getHttpClient(ctx context.Context) *http.Client {
 		// this creates a client with a longer timeout.
 		cctx, _ := context.WithDeadline(ctx, time.Now().Add(30*time.Second))
 		return urlfetch.Client(cctx)
-	} else {
-		// Default client is good enough
-		return http.DefaultClient
 	}
+	// Default client is good enough
+	return http.DefaultClient
 }
 
 // Log an error somewhere

@@ -36,7 +36,9 @@ import (
 // Handle request to send a new token to a given address.
 // Currently these tokens are valid for 1 hour.
 // If DisableAuthentication is set, then an error response is sent instead.
-func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
+func (kts *KeyTransparencyServer) sendTokenHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := kts.ContextCreator(r)
+
 	if config.Server.DisableAuthentication {
 		w.WriteHeader(400)
 		w.Write([]byte("Configuration has disabled authentication - no tokens will be sent."))
@@ -48,7 +50,7 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 
 	token, err := makeToken(username, time.Now().Add(time.Hour))
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
@@ -61,16 +63,16 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 		"Email":    username,
 	})
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
 	s := string(message.Bytes())
 	s = strings.Replace(s, "&#43;", "+", -1) // TODO: find better way of not escaping +
 
-	err = sendMail(getContext(r), config.SendGrid.FromAddress, []string{username}, config.SendGrid.EmailSubject, s)
+	err = sendMail(ctx, config.SendGrid.FromAddress, []string{username}, config.SendGrid.EmailSubject, s)
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
@@ -80,14 +82,14 @@ func sendTokenHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Respond with a DER-encoded VUF Public Key
-func sendVUFPublicKey(w http.ResponseWriter, r *http.Request) {
+func (kts *KeyTransparencyServer) sendVUFPublicKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/binary")
 
 	w.Write(vufPublicKeyBytes)
 }
 
 // Respond with a DER-encoded Server Public Key
-func sendServerPublicKey(w http.ResponseWriter, r *http.Request) {
+func (kts *KeyTransparencyServer) sendServerPublicKey(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/binary")
 	w.Write(serverPublicKeyBytes)
 }
@@ -127,7 +129,9 @@ func validateData(data []byte) error {
 // be sequenced and reflected back in a new map head.
 // Unless DisableAuthentication is set, this will check for the presence of a valid token
 // for that email address as sent by sendTokenHandler.
-func setKeyHandler(w http.ResponseWriter, r *http.Request) {
+func (kts *KeyTransparencyServer) setKeyHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := kts.ContextCreator(r)
+
 	// Get the username
 	username := mux.Vars(r)["user"]
 
@@ -150,14 +154,14 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	// Apply the vuf to the username
 	vufResult, err := ApplyVUF([]byte(username))
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
 	// Read the body, this should be DER encoded PGP Public Key - bytes, not PEM.
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
@@ -169,7 +173,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load up the Map
-	vmap := getMapObject(getContext(r))
+	vmap := getMapObject(ctx)
 
 	// Next sequence
 	nextSequence := int64(0) // unless advised otherwise
@@ -178,9 +182,9 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 	keyForVuf := GetKeyForVUF(vufResult)
 
 	// Get the current value so that we can pick the next sequence
-	curVal, err := vmap.Get(keyForVuf, verifiabledatastructures.Head)
+	curVal, err := vmap.Get(ctx, keyForVuf, verifiabledatastructures.Head)
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
@@ -192,14 +196,14 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		// If we managed to get the value, then let's decode:
 		shedBytes, err := verifiabledatastructures.ShedRedactedJSONFields(curVal.Value.ExtraData)
 		if err != nil {
-			handleError(err, r, w)
+			handleError(ctx, err, r, w)
 			return
 		}
 
 		var pkd PublicKeyData
 		err = json.Unmarshal(shedBytes, &pkd)
 		if err != nil {
-			handleError(err, r, w)
+			handleError(ctx, err, r, w)
 			return
 		}
 
@@ -219,19 +223,19 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		PriorTreeSize: curVal.TreeSize,
 	})
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
 	// Update the value - will only apply if no-one else modifies.
 	v, err := verifiabledatastructures.CreateRedactableJSONLeafData(jb)
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
-	aer, err := vmap.Update(keyForVuf, v, prevHash)
+	aer, err := vmap.Update(ctx, keyForVuf, v, prevHash)
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
@@ -240,7 +244,7 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 		MutationEntryLeafHash: aer.LeafHash(),
 	})
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
@@ -251,40 +255,44 @@ func setKeyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get the latest data for a map key
-func getHeadKeyHandler(w http.ResponseWriter, r *http.Request) {
-	getKeyHandler(verifiabledatastructures.Head, w, r)
+func (kts *KeyTransparencyServer) getHeadKeyHandler(w http.ResponseWriter, r *http.Request) {
+	kts.getKeyHandler(verifiabledatastructures.Head, w, r)
 }
 
 // Get the data for the map key for a specific tree size
-func getSizeKeyHandler(w http.ResponseWriter, r *http.Request) {
+func (kts *KeyTransparencyServer) getSizeKeyHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := kts.ContextCreator(r)
+
 	ts, err := strconv.Atoi(mux.Vars(r)["treesize"])
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
-	getKeyHandler(int64(ts), w, r)
+	kts.getKeyHandler(int64(ts), w, r)
 }
 
 // Private handler to actually get the data for a given tree size
-func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
+func (kts *KeyTransparencyServer) getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
+	ctx := kts.ContextCreator(r)
+
 	// Get the username
 	username := mux.Vars(r)["user"]
 
 	// Apply the vuf to the username
 	vufResult, err := ApplyVUF([]byte(username))
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
 	// Load up the Map
-	vmap := getMapObject(getContext(r))
+	vmap := getMapObject(ctx)
 
 	// Get the current value - deliberate pick JSON Entry Factory since we want to return raw
-	curVal, err := vmap.Get(GetKeyForVUF(vufResult), ts)
+	curVal, err := vmap.Get(ctx, GetKeyForVUF(vufResult), ts)
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 
@@ -300,7 +308,7 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 	b := &bytes.Buffer{}
 	err = json.NewEncoder(b).Encode(result)
 	if err != nil {
-		handleError(err, r, w)
+		handleError(ctx, err, r, w)
 		return
 	}
 

@@ -101,10 +101,10 @@ var (
 )
 
 // handleError logs an error and sets an appropriate HTTP status code.
-func handleError(err error, r *http.Request, w http.ResponseWriter) {
+func handleError(ctx context.Context, err error, r *http.Request, w http.ResponseWriter) {
 	switch err { // TODO: handle better
 	default:
-		logError(getContext(r), fmt.Sprintf("Error: %v", err))
+		logError(ctx, fmt.Sprintf("Error: %v", err))
 		w.WriteHeader(500)
 	}
 }
