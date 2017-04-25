@@ -41,6 +41,7 @@ func (kts *HTTPServer) CreateHandler() http.Handler {
 		if err != nil {
 
 		}
+		
 	}).Methods("GET")
 
 	// Return the public key used for server signatures
