@@ -14,7 +14,7 @@
    limitations under the License.
 */
 
-package main
+package keytransparency
 
 import (
 	"bytes"
@@ -47,7 +47,7 @@ type SignedToken struct {
 }
 
 // Returns nil if valid - token should be base64 decoded already.
-func validateToken(email string, token []byte) error {
+func validateToken(pkey *ecdsa.PublicKey, email string, token []byte) error {
 	var sig SignedToken
 	_, err := asn1.Unmarshal(token, &sig)
 	if err != nil {
@@ -75,16 +75,16 @@ func validateToken(email string, token []byte) error {
 		return err
 	}
 
-	if ecdsa.Verify(&emailTokenPrivateKey.PublicKey, oh, sig.Signature.R, sig.Signature.S) {
-		return nil
-	} else {
+	if !ecdsa.Verify(pkey, oh, sig.Signature.R, sig.Signature.S) {
 		return ErrInvalidSig
 	}
+
+	return nil
 }
 
 // Creates a new token for the email address and specified TTL.
 // Result is to be base64 encoded by caller.
-func makeToken(email string, ttl time.Time) ([]byte, error) {
+func makeToken(pkey *ecdsa.PrivateKey, email string, ttl time.Time) ([]byte, error) {
 	token := &TokenData{
 		Email: email,
 		TTL:   ttl.Unix(),
@@ -102,7 +102,7 @@ func makeToken(email string, ttl time.Time) ([]byte, error) {
 		return nil, err
 	}
 
-	r, s, err := ecdsa.Sign(rand.Reader, emailTokenPrivateKey, oh)
+	r, s, err := ecdsa.Sign(rand.Reader, pkey, oh)
 	if err != nil {
 		return nil, err
 	}

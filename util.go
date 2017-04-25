@@ -14,25 +14,18 @@
    limitations under the License.
 */
 
-package main
+package keytransparency
 
 import (
 	"bytes"
 	"crypto"
-	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"encoding/asn1"
-	"encoding/base64"
 	"errors"
-	"fmt"
 	"math/big"
-	"net/http"
 
-	"github.com/continusec/verifiabledatastructures"
-
-	"golang.org/x/net/context"
+	"golang.org/x/crypto/openpgp/armor"
 )
 
 // PublicKeyData is the data stored for a map key in the Verifiable Map
@@ -100,6 +93,7 @@ var (
 	ErrInvalidKey = errors.New("ErrInvalidKey")
 )
 
+/*
 // handleError logs an error and sets an appropriate HTTP status code.
 func handleError(ctx context.Context, err error, r *http.Request, w http.ResponseWriter) {
 	switch err { // TODO: handle better
@@ -108,83 +102,14 @@ func handleError(ctx context.Context, err error, r *http.Request, w http.Respons
 		w.WriteHeader(500)
 	}
 }
+*/
 
-// Sign data using a private key and return an ASN1 serialized signature.
-func ecSign(data []byte, key *ecdsa.PrivateKey) ([]byte, error) {
-	hashed := sha256.Sum256(data)
-	r, s, err := ecdsa.Sign(rand.Reader, key, hashed[:])
-	if err != nil {
-		return nil, err
-	}
-	sig, err := asn1.Marshal(ECDSASignature{R: r, S: s})
-	if err != nil {
-		return nil, err
-	}
-	return sig, nil
-}
-
-type responseGrabber struct {
-	Contents *bytes.Buffer
-	hdr      http.Header
-	Status   int
-}
-
-func (rg *responseGrabber) Header() http.Header {
-	if rg.hdr == nil {
-		rg.hdr = make(http.Header)
-	}
-	return rg.hdr
-}
-
-func (rg *responseGrabber) Write(b []byte) (int, error) {
-	if rg.Contents == nil {
-		rg.Contents = &bytes.Buffer{}
-	}
-	return rg.Contents.Write(b)
-}
-
-func (rg *responseGrabber) WriteHeader(s int) {
-	rg.Status = s
-}
-
-type signingWrapper struct {
-	H http.Handler
-}
-
-func (wr *signingWrapper) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	respWrapper := &responseGrabber{}
-	wr.H.ServeHTTP(respWrapper, r)
-	var b []byte
-	if respWrapper.Contents != nil {
-		b = respWrapper.Contents.Bytes()
-	}
-	sig, err := ecSign(b, serverPrivateKey)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	for k, v := range respWrapper.Header() {
-		w.Header()[k] = v
-	}
-	w.Header().Set("X-Body-Signature", base64.StdEncoding.EncodeToString(sig))
-	if respWrapper.Status == 0 {
-		w.WriteHeader(http.StatusOK)
-	} else {
-		w.WriteHeader(respWrapper.Status)
-	}
-	w.Write(b)
-}
-
-// Write this data to an HttpResponse and then add a signature header.
-func signItHandler(h http.Handler) http.Handler {
-	return &signingWrapper{H: h}
-}
-
+/*
 // Returns a VerifiableMap object ready for manipulation using the mutating secret
 // key.
 func getMapObject(ctx context.Context) *verifiabledatastructures.VerifiableMap {
 	return mapService.Account("0", "mutating").VerifiableMap("keys")
-}
+}*/
 
 // Take the result of the VUF and convert this to a Verifiable Map key.
 // We hash this primarily so that the mutation log (which auditors needs)
@@ -198,11 +123,37 @@ func GetKeyForVUF(data []byte) []byte {
 
 // Calculated the VUF to a plain text map key (email address) to produce a VUF result.
 // Here that means make a PKCS15 signature over the input data.
-func ApplyVUF(data []byte) ([]byte, error) {
+func ApplyVUF(pkey *rsa.PrivateKey, data []byte) ([]byte, error) {
 	hash := sha256.Sum256(data)
-	sig, err := rsa.SignPKCS1v15(rand.Reader, vufPrivateKey, crypto.SHA256, hash[:])
+	sig, err := rsa.SignPKCS1v15(rand.Reader, pkey, crypto.SHA256, hash[:])
 	if err != nil {
 		return nil, err
 	}
 	return sig, nil
+}
+
+// Return nil if this is OK to be a value.
+// We want there to be at least 1 valid PEM PGP PUBLIC KEY BLOCK,
+// and if found, we will just store what we sent to us,
+// provided it is less than 1 MB.
+func validateData(data []byte) error {
+	if len(data) > (1024 * 1024) {
+		return errors.New("Data too large - currently 1MB limit")
+	}
+
+	p, err := armor.Decode(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+
+	if p == nil {
+		return errors.New("Unable to parse as PGP PUBLIC KEY (armored)")
+	}
+
+	if p.Type != "PGP PUBLIC KEY BLOCK" {
+		return errors.New("Unable to find PGP PUBLIC KEY BLOCK")
+	}
+
+	// All good
+	return nil
 }
