@@ -28,7 +28,7 @@ import (
 )
 
 // TokenData is used to form a basic structure that we take the object hash of before signing.
-type TokenData struct {
+type tokenData struct {
 	// Email is the email address this token is valid for
 	Email string `json:"email"`
 
@@ -37,7 +37,7 @@ type TokenData struct {
 }
 
 // A token is a base64 of asn1 form of this.
-type SignedToken struct {
+type signedToken struct {
 	// Signature for the TokenData
 	Signature ECDSASignature
 
@@ -48,17 +48,17 @@ type SignedToken struct {
 
 // Returns nil if valid - token should be base64 decoded already.
 func validateToken(pkey *ecdsa.PublicKey, email string, token []byte) error {
-	var sig SignedToken
+	var sig signedToken
 	_, err := asn1.Unmarshal(token, &sig)
 	if err != nil {
 		return err
 	}
 
 	if time.Now().After(time.Unix(sig.TTL, 0)) {
-		return ErrTTLExpired
+		return errTTLExpired
 	}
 
-	td := &TokenData{
+	td := &tokenData{
 		Email: email,
 		TTL:   sig.TTL,
 	}
@@ -76,7 +76,7 @@ func validateToken(pkey *ecdsa.PublicKey, email string, token []byte) error {
 	}
 
 	if !ecdsa.Verify(pkey, oh, sig.Signature.R, sig.Signature.S) {
-		return ErrInvalidSig
+		return errInvalidSig
 	}
 
 	return nil
@@ -85,7 +85,7 @@ func validateToken(pkey *ecdsa.PublicKey, email string, token []byte) error {
 // Creates a new token for the email address and specified TTL.
 // Result is to be base64 encoded by caller.
 func makeToken(pkey *ecdsa.PrivateKey, email string, ttl time.Time) ([]byte, error) {
-	token := &TokenData{
+	token := &tokenData{
 		Email: email,
 		TTL:   ttl.Unix(),
 	}
@@ -107,7 +107,7 @@ func makeToken(pkey *ecdsa.PrivateKey, email string, ttl time.Time) ([]byte, err
 		return nil, err
 	}
 
-	sig, err := asn1.Marshal(SignedToken{Signature: ECDSASignature{R: r, S: s}, TTL: token.TTL})
+	sig, err := asn1.Marshal(signedToken{Signature: ECDSASignature{R: r, S: s}, TTL: token.TTL})
 	if err != nil {
 		return nil, err
 	}

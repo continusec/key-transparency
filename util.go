@@ -19,111 +19,50 @@ package keytransparency
 import (
 	"bytes"
 	"crypto"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"log"
 	"math/big"
+	"strings"
 
 	"golang.org/x/crypto/openpgp/armor"
 )
 
-// PublicKeyData is the data stored for a map key in the Verifiable Map
-type PublicKeyData struct {
-	// Sequence number, starting from 0, of different values for this map key.
-	// Our server guarantees we will always present sequentially increasing numbers for
-	// any given map key, with no gaps or duplicates, beginning at 0.
-	Sequence int64 `json:"sequence"`
-
-	// PriorTreeSize is any prior tree size that had the value for this map key for Sequence - 1.
-	// This is useful for a follow-up call to request the previous value for this map key.
-	PriorTreeSize int64 `json:"priorTreeSize"`
-
-	// The plain text email address for which this map key is valid
-	Email string `json:"email"`
-
-	// The public key data held for this key. It is simply stored as uploaded by the user
-	// without any further validation.
-	PGPPublicKey []byte `json:"pgpPublicKey"`
-}
-
-// GetEntryResult is the data returned when looking up data for an email address
-type GetEntryResult struct {
-	// VUFResult is the result of applying the VUF to the email address. This is
-	// the PKCS15 signature of the SHA256 hash of the email address. This must be verified by
-	// the client.
-	VUFResult []byte `json:"vufResult"`
-
-	// AuditPath is the set of Merkle Tree nodes that should be applied along with this
-	// value to produce the Merkle Tree root hash for the Verifiable Map at this tree size.
-	AuditPath [][]byte `json:"auditPath"`
-
-	// TreeSize is the size of the Merkle Tree for which this inclusion proof is valid.
-	TreeSize int64 `json:"treeSize"`
-
-	// PublicKeyValue is a redacted JSON for PublicKeyData field.
-	PublicKeyValue []byte `json:"publicKeyValue"`
-}
-
-// AddEntryResult is the data returned when setting a key in the map
-type AddEntryResult struct {
-	// MutationEntryLeafHash is the leaf hash of the entry added to the mutation log for the map.
-	// Once this has been verified to be added to the mutation log for the map, then this entry
-	// will be reflected for the map at that size (provided no conflicting operation occurred).
-	MutationEntryLeafHash []byte `json:"mutationEntryLeafHash"`
-}
-
-// A token is a base64 of asn1 form of this.
+// ECDSASignature marshalled as ASN.1 is the signature
 type ECDSASignature struct {
 	// R, S are as returned by ecdsa.Sign
 	R, S *big.Int
 }
 
 // EmptyLeafHash is the leaf hash of an empty node, pre-calculated since used often.
-var EmptyLeafHash = sha256.Sum256([]byte{0})
+var emptyLeafHash = sha256.Sum256([]byte{0})
 
 var (
 	// The signature failed to validate - likely wrong email.
-	ErrInvalidSig = errors.New("ErrInvalidSig")
+	errInvalidSig = errors.New("ErrInvalidSig")
 
 	// The signature is too old
-	ErrTTLExpired = errors.New("ErrTTLExpired")
-
-	// We are unable to parse a given private key file
-	ErrInvalidKey = errors.New("ErrInvalidKey")
+	errTTLExpired = errors.New("ErrTTLExpired")
 )
-
-/*
-// handleError logs an error and sets an appropriate HTTP status code.
-func handleError(ctx context.Context, err error, r *http.Request, w http.ResponseWriter) {
-	switch err { // TODO: handle better
-	default:
-		logError(ctx, fmt.Sprintf("Error: %v", err))
-		w.WriteHeader(500)
-	}
-}
-*/
-
-/*
-// Returns a VerifiableMap object ready for manipulation using the mutating secret
-// key.
-func getMapObject(ctx context.Context) *verifiabledatastructures.VerifiableMap {
-	return mapService.Account("0", "mutating").VerifiableMap("keys")
-}*/
 
 // Take the result of the VUF and convert this to a Verifiable Map key.
 // We hash this primarily so that the mutation log (which auditors needs)
 // won't be vulnerable to an offline directly harvest attack where an attacker
 // can simply try to verify a list of VUF results against a generated list of email
 // addresses.
-func GetKeyForVUF(data []byte) []byte {
+func getKeyForVUF(data []byte) []byte {
 	rv := sha256.Sum256(data)
 	return rv[:]
 }
 
 // Calculated the VUF to a plain text map key (email address) to produce a VUF result.
 // Here that means make a PKCS15 signature over the input data.
-func ApplyVUF(pkey *rsa.PrivateKey, data []byte) ([]byte, error) {
+func applyVUF(pkey *rsa.PrivateKey, data []byte) ([]byte, error) {
 	hash := sha256.Sum256(data)
 	sig, err := rsa.SignPKCS1v15(rand.Reader, pkey, crypto.SHA256, hash[:])
 	if err != nil {
@@ -156,4 +95,51 @@ func validateData(data []byte) error {
 
 	// All good
 	return nil
+}
+
+// MustCreateRSAKeyFromPEM converts a string that should be a PEM of type "PRIVATE KEY" to an
+// actual RSA private key.
+func MustCreateRSAKeyFromPEM(s string) *rsa.PrivateKey {
+	var p *pem.Block
+	p, _ = pem.Decode([]byte(s))
+	if p == nil {
+		log.Fatal("no key found")
+	}
+
+	if !strings.HasSuffix(p.Type, "PRIVATE KEY") {
+		log.Fatal("not private key")
+	}
+
+	key, err := x509.ParsePKCS8PrivateKey(p.Bytes)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	rv, ok := key.(*rsa.PrivateKey)
+	if !ok {
+		log.Fatal("cannot cast")
+	}
+
+	return rv
+}
+
+// MustCreateECKeyFromPEM converts a string that should be a PEM of type "EC PRIVATE KEY" to an
+// actual RSA private key.
+func MustCreateECKeyFromPEM(s string) *ecdsa.PrivateKey {
+	var p *pem.Block
+	p, _ = pem.Decode([]byte(s))
+	if p == nil {
+		log.Fatal("no key found")
+	}
+
+	if !strings.HasSuffix(p.Type, "EC PRIVATE KEY") {
+		log.Fatal("not private key")
+	}
+
+	key, err := x509.ParseECPrivateKey(p.Bytes)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return key
 }

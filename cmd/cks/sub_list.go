@@ -49,7 +49,7 @@ func listUsers(db *bolt.DB, c *cli.Context) error {
 
 		if fur.KeyData != nil {
 			seq = strconv.Itoa(int(fur.KeyData.Sequence))
-			vh := sha256.Sum256(fur.KeyData.PGPPublicKey)
+			vh := sha256.Sum256(fur.KeyData.Value)
 			valS = base64.StdEncoding.EncodeToString(vh[:])
 		}
 

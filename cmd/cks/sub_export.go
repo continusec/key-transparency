@@ -84,7 +84,7 @@ func exportUser(db *bolt.DB, c *cli.Context) error {
 						return errors.New("unable to find record for users with desired sequence number")
 					}
 				}
-				os.Stdout.Write(furs[len(furs)-1].KeyData.PGPPublicKey)
+				os.Stdout.Write(furs[len(furs)-1].KeyData.Value)
 			}
 		}
 	}

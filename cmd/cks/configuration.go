@@ -38,7 +38,7 @@ func getPubKey(db *bolt.DB) ([]byte, error) {
 
 // Return configured server
 func getServer() (string, error) {
-	db, err := GetDB()
+	db, err := getDB()
 	if err != nil {
 		return "", err
 	}
@@ -56,7 +56,7 @@ func getServer() (string, error) {
 // Return versifiable map with our special wrapping, verifiying, caching client for the configured
 // server.
 func getMap() (*verifiabledatastructures.VerifiableMap, error) {
-	db, err := GetDB()
+	db, err := getDB()
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func getMap() (*verifiabledatastructures.VerifiableMap, error) {
 	return (&verifiabledatastructures.Client{
 		Service: (&verifiabledatastructures.HTTPRESTClient{
 			BaseURL:    server,
-			HTTPClient: &http.Client{Transport: &CachingVerifyingRT{DB: db}},
+			HTTPClient: &http.Client{Transport: &cachingVerifyingRT{DB: db}},
 		}).MustDial(),
 	}).Account("0", "").VerifiableMap("keys"), nil
 }

@@ -1,9 +1,0 @@
-application: continusec-key-server
-module: default
-version: 2
-runtime: go
-api_version: go1
-
-handlers:
-- url: /.*
-  script: _go_app

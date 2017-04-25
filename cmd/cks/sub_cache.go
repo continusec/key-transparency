@@ -28,20 +28,20 @@ import (
 	"github.com/urfave/cli"
 )
 
-type ByTimestamp []*CacheEntry
+type byTimestamp []*cacheEntry
 
-func (a ByTimestamp) Len() int           { return len(a) }
-func (a ByTimestamp) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ByTimestamp) Less(i, j int) bool { return a[i].Timestamp.Before(a[j].Timestamp) }
+func (a byTimestamp) Len() int           { return len(a) }
+func (a byTimestamp) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byTimestamp) Less(i, j int) bool { return a[i].Timestamp.Before(a[j].Timestamp) }
 
 // Display values in cache - either as a table with no values, or individually if requested
 func showCache(db *bolt.DB, c *cli.Context) error {
 	switch c.NArg() {
 	case 0:
-		entries := make([]*CacheEntry, 0)
+		entries := make([]*cacheEntry, 0)
 		err := db.View(func(tx *bolt.Tx) error {
 			return tx.Bucket([]byte("cache")).ForEach(func(k, v []byte) error {
-				var entry CacheEntry
+				var entry cacheEntry
 				err := gob.NewDecoder(bytes.NewBuffer(v)).Decode(&entry)
 				if err != nil {
 					return err
@@ -55,7 +55,7 @@ func showCache(db *bolt.DB, c *cli.Context) error {
 			return err
 		}
 
-		sort.Sort(ByTimestamp(entries))
+		sort.Sort(byTimestamp(entries))
 
 		table := tablewriter.NewWriter(os.Stdout)
 		table.SetHeader([]string{"Timestamp", "URL"})
@@ -67,7 +67,7 @@ func showCache(db *bolt.DB, c *cli.Context) error {
 		}
 		table.Render()
 	case 1:
-		entry, err := (&CachingVerifyingRT{DB: db}).getValFromCache(c.Args().Get(0))
+		entry, err := (&cachingVerifyingRT{DB: db}).getValFromCache(c.Args().Get(0))
 		if err != nil {
 			return err
 		}

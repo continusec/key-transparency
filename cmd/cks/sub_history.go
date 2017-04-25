@@ -55,7 +55,7 @@ func historyForUser(db *bolt.DB, c *cli.Context) error {
 			}
 
 			for _, fur := range furs {
-				vh := sha256.Sum256(fur.KeyData.PGPPublicKey)
+				vh := sha256.Sum256(fur.KeyData.Value)
 				table.Append([]string{
 					emailAddress,
 					base64.StdEncoding.EncodeToString(vh[:]),

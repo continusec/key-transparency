@@ -17,12 +17,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/boltdb/bolt"
+	"github.com/continusec/key-transparency/pb"
 	"github.com/urfave/cli"
 )
 
@@ -40,18 +41,16 @@ func mailToken(db *bolt.DB, c *cli.Context) error {
 	if c.Bool("yes") || confirmIt(fmt.Sprintf("Are you sure you want to generate and send a token to address (%s)? Please only do so if you own that email account.", emailAddress)) {
 		fmt.Printf("Sending mail to %s with token...\n", emailAddress)
 
-		server, err := getServer()
+		server, err := getKTClient("")
 		if err != nil {
 			return err
 		}
 
-		resp, err := http.Post(server+"/v2/sendToken/"+emailAddress, "", nil)
+		_, err = server.MailToken(context.Background(), &pb.MailTokenRequest{
+			Email: emailAddress,
+		})
 		if err != nil {
 			return err
-		}
-
-		if resp.StatusCode != 200 {
-			return errors.New(fmt.Sprintf("non-200 response received: %d", resp.StatusCode))
 		}
 
 		fmt.Printf("Success. See email for further instructions.\n")

@@ -17,34 +17,10 @@
 package main
 
 import (
-	"crypto/sha256"
-	"math/big"
 	"time"
 
-	"github.com/continusec/verifiabledatastructures"
-	"github.com/continusec/verifiabledatastructures/pb"
+	"github.com/continusec/key-transparency/pb"
 )
-
-// A Sig is the asn1 form of this.
-type ECDSASignature struct {
-	// R, S are as returned by ecdsa.Sign
-	R, S *big.Int
-}
-
-// PublicKeyData is the data stored for a key in the Merkle Tree.
-type PublicKeyData struct {
-	// Sequence number, starting from 0, of different values for this key
-	Sequence int64 `json:"sequence"`
-
-	// PriorTreeSize is any prior tree size that had the value this key for Sequence - 1.
-	PriorTreeSize int64 `json:"priorTreeSize"`
-
-	// The plain text email address for which this key is valid
-	Email string `json:"email"`
-
-	// The public key data held for this key.
-	PGPPublicKey []byte `json:"pgpPublicKey"`
-}
 
 // FollowedUserRecord is stored locally for each user that we follow. We don't bother
 // persisting history in this record since we get that "for free" in our cache
@@ -53,7 +29,7 @@ type FollowedUserRecord struct {
 	MapSize int64
 
 	// The key data retreived and verified - may be nil if none was present at that size
-	KeyData *PublicKeyData
+	KeyData *pb.VersionedKeyData
 
 	// Not stored (since this is the key) but useful for downstream processing
 	email string
@@ -69,14 +45,6 @@ type treeSizeResponse struct {
 type gossip struct {
 	Signature           []byte `json:"sig"`
 	TreeHeadLogTreehead []byte `json:"thlth"`
-}
-
-// AddEntryResult is the data returned when setting a key in the map
-type AddEntryResult struct {
-	// MutationEntryLeafHash is the leaf hash of the entry added to the mutation log for the map.
-	// Once this has been verified to be added to the mutation log for the map, then this entry
-	// will be reflected for the map at that size (provided no conflicting operation occurred).
-	MutationEntryLeafHash []byte `json:"mutationEntryLeafHash"`
 }
 
 // UpdateResult is something we save off locally for each entry that we have added.
@@ -100,24 +68,7 @@ type UpdateResult struct {
 	Timestamp time.Time
 }
 
-// GetEntryResult is the data returned when looking up data for an email address
-type GetEntryResult struct {
-	// VUFResult is the result of applying the VUF to the email address. In practice this is
-	// the PKCS15 signature of the SHA256 hash of the email address. This must be verified by
-	// the client.
-	VUFResult []byte `json:"vufResult"`
-
-	// AuditPath is the set of Merkle Tree nodes that should be applied along with this
-	// value to produce the Merkle Tree root hash.
-	AuditPath [][]byte `json:"auditPath"`
-
-	// TreeSize is the size of the Merkle Tree for which this inclusion proof is valid.
-	TreeSize int64 `json:"treeSize"`
-
-	// PublicKeyValue is a redacted JSON for PublicKeyData field.
-	PublicKeyValue []byte `json:"publicKeyValue"`
-}
-
+/*
 // Verify that this result is included in the given map state
 func (ger *GetEntryResult) VerifyInclusion(ms *verifiabledatastructures.MapTreeState) error {
 	x := sha256.Sum256(ger.VUFResult)
@@ -125,9 +76,10 @@ func (ger *GetEntryResult) VerifyInclusion(ms *verifiabledatastructures.MapTreeS
 	if err != nil {
 		return err
 	}
-	return verifiabledatastructures.VerifyMapInclusionProof(&pb.MapGetValueResponse{
+	return verifiabledatastructures.VerifyMapInclusionProof(&vpb.MapGetValueResponse{
 		TreeSize:  ger.TreeSize,
 		AuditPath: ger.AuditPath,
 		Value:     v,
 	}, x[:], ms.MapTreeHead)
 }
+*/

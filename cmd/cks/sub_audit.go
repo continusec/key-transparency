@@ -23,6 +23,7 @@ import (
 	"fmt"
 
 	"github.com/boltdb/bolt"
+	kpb "github.com/continusec/key-transparency/pb"
 	"github.com/continusec/verifiabledatastructures"
 	"github.com/continusec/verifiabledatastructures/pb"
 	"github.com/urfave/cli"
@@ -61,7 +62,7 @@ func audit(db *bolt.DB, c *cli.Context) error {
 	}
 
 	if prevMapState != nil && prevMapState.TreeHeadLogTreeHead.TreeSize >= curMapState.TreeHeadLogTreeHead.TreeSize {
-		return errors.New(fmt.Sprintf("Previous audited tree head log size (%d) is greater than or equal to current - no audit needed.\n", curMapState.TreeHeadLogTreeHead.TreeSize))
+		return fmt.Errorf("previous audited tree head log size (%d) is greater than or equal to current - no audit needed", curMapState.TreeHeadLogTreeHead.TreeSize)
 	}
 	sequenceNumberPerKey := make(map[string]int64) // we use string instead of []byte since it won't hash
 	err = vmap.VerifyMap(context.Background(), prevMapState, curMapState, verifiabledatastructures.ValidateJSONLeafData, func(ctx context.Context, idx int64, key []byte, value *pb.LeafData) error {
@@ -79,7 +80,7 @@ func audit(db *bolt.DB, c *cli.Context) error {
 			return errors.New("Unable to properly decode redacted field")
 		}
 
-		var pkd PublicKeyData
+		var pkd kpb.VersionedKeyData
 		err = json.NewDecoder(bytes.NewReader(shedBytes)).Decode(&pkd)
 		if err != nil {
 			return err

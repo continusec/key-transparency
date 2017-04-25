@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -77,7 +78,7 @@ func verifyGossip(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	ourEquiv, err := vmap.TreeHeadLog().VerifiedTreeHead(ourAuditedMapTreeState.TreeHeadLogTreeHead, theirLogTreeHead.TreeSize)
+	ourEquiv, err := vmap.TreeHeadLog().VerifiedTreeHead(context.Background(), ourAuditedMapTreeState.TreeHeadLogTreeHead, theirLogTreeHead.TreeSize)
 	if err != nil {
 		return err
 	}

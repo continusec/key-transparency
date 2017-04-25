@@ -1,4 +1,4 @@
-package main
+package keytransparency
 
 import (
 	"encoding/hex"
@@ -10,6 +10,7 @@ import (
 	"google.golang.org/appengine/datastore"
 )
 
+// AppEngineStorage provides a storage layer appropriate to use in Google App Engine.
 type AppEngineStorage struct{}
 
 type dsBytes struct {

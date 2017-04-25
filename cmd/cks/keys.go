@@ -18,48 +18,64 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"encoding/json"
 	"errors"
-	"strconv"
 
 	"github.com/boltdb/bolt"
+	"github.com/continusec/key-transparency/pb"
 	"github.com/continusec/verifiabledatastructures"
 )
 
 // Get public key data for user in a particular map state. May return nil.
-func getVerifiedValueForMapState(key string, ms *verifiabledatastructures.MapTreeState) (*PublicKeyData, error) {
-	res, err := getValForEmail(key, ms.TreeSize())
+func getVerifiedValueForMapState(ctx context.Context, key string, ms *verifiabledatastructures.MapTreeState) (*pb.VersionedKeyData, error) {
+	client, err := getKTClient("")
 	if err != nil {
 		return nil, err
 	}
 
-	err = res.VerifyInclusion(ms)
+	res, err := client.MapVUFGetValue(ctx, &pb.MapVUFGetKeyRequest{
+		Key:      []byte(key),
+		TreeSize: ms.TreeSize(),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	err = validateVufResult(key, res.VUFResult)
+	err = verifiabledatastructures.VerifyMapInclusionProof(res.MapResponse, res.VufResult, ms.MapTreeHead)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(res.PublicKeyValue) == 0 { // it's ok to get an empty result
+	err = validateVufResult(key, res.VufResult)
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify the extra data matches leaf input?
+	err = verifiabledatastructures.ValidateJSONLeafData(ctx, res.MapResponse.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(res.MapResponse.Value.ExtraData) == 0 { // it's ok to get an empty result
 		return nil, nil
 	}
-	data, err := verifiabledatastructures.ShedRedactedJSONFields(res.PublicKeyValue)
+
+	data, err := verifiabledatastructures.ShedRedactedJSONFields(res.MapResponse.Value.ExtraData)
 	if err != nil {
 		return nil, err
 	}
 
-	var pkd PublicKeyData
+	var pkd pb.VersionedKeyData
 	err = json.NewDecoder(bytes.NewReader(data)).Decode(&pkd)
 	if err != nil {
 		return nil, err
 	}
 
-	if pkd.Email != key {
-		return nil, errors.New("Wrong email address stored against user.")
+	if !bytes.Equal(pkd.Key, []byte(key)) {
+		return nil, errors.New("wrong email address stored against user")
 	}
 
 	return &pkd, nil
@@ -67,7 +83,7 @@ func getVerifiedValueForMapState(key string, ms *verifiabledatastructures.MapTre
 
 // Change the FollowedUserRecord for a followed user to be result that matches this map state
 func updateKeyToMapState(db *bolt.DB, emailAddress string, ms *verifiabledatastructures.MapTreeState) error {
-	pkd, err := getVerifiedValueForMapState(emailAddress, ms)
+	pkd, err := getVerifiedValueForMapState(context.Background(), emailAddress, ms)
 	if err != nil {
 		return err
 	}
@@ -111,25 +127,26 @@ func getHistoryForUser(emailAddress string, seqToStopAt int64, mapState *verifia
 
 	done := false
 	expectedSeq := int64(-10)
+	ctx := context.Background()
 	for !done {
-		pkd, err := getVerifiedValueForMapState(emailAddress, mapState)
+		pkd, err := getVerifiedValueForMapState(ctx, emailAddress, mapState)
 		if err != nil {
 			return nil, err
 		}
 		if pkd == nil {
 			if expectedSeq >= 0 {
-				return nil, errors.New("Unable to find record for user.")
+				return nil, errors.New("unable to find record for user")
 			}
 			done = true
 		} else {
 			if expectedSeq != -10 {
 				if pkd.Sequence != expectedSeq {
-					return nil, errors.New("Unexpected user sequence number returned for user record (1).")
+					return nil, errors.New("unexpected user sequence number returned for user record (1)")
 				}
 			}
 			expectedSeq = pkd.Sequence - 1
 			if expectedSeq < -1 {
-				return nil, errors.New("Unexpected user sequence number returned for user record (2).")
+				return nil, errors.New("unexpected user sequence number returned for user record (2)")
 			}
 
 			rv = append(rv, &FollowedUserRecord{
@@ -143,7 +160,7 @@ func getHistoryForUser(emailAddress string, seqToStopAt int64, mapState *verifia
 				if pkd.Sequence <= seqToStopAt {
 					done = true
 				} else {
-					mapState, err = vmap.VerifiedMapState(mapState, pkd.PriorTreeSize)
+					mapState, err = vmap.VerifiedMapState(context.Background(), mapState, pkd.PriorTreeSize)
 					if err != nil {
 						return nil, err
 					}
@@ -153,27 +170,4 @@ func getHistoryForUser(emailAddress string, seqToStopAt int64, mapState *verifia
 	}
 
 	return rv, nil
-}
-
-// Get unverified value for email from server
-func getValForEmail(emailAddress string, treeSize int64) (*GetEntryResult, error) {
-	server, err := getServer()
-	if err != nil {
-		return nil, err
-	}
-
-	url := server + "/v2/publicKey/" + emailAddress + "/at/" + strconv.Itoa(int(treeSize))
-
-	contents, err := doGet(url)
-	if err != nil {
-		return nil, err
-	}
-
-	var ger GetEntryResult
-	err = json.Unmarshal(contents, &ger)
-	if err != nil {
-		return nil, err
-	}
-
-	return &ger, nil
 }

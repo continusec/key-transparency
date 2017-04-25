@@ -18,15 +18,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/gob"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -34,6 +33,7 @@ import (
 	"golang.org/x/crypto/openpgp/armor"
 
 	"github.com/boltdb/bolt"
+	"github.com/continusec/key-transparency/pb"
 	"github.com/urfave/cli"
 )
 
@@ -72,46 +72,26 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 
 	fmt.Printf("Setting key for %s with token...\n", emailAddress)
 
-	server, err := getServer()
+	client, err := getKTClient("")
 	if err != nil {
 		return err
 	}
 
-	url := server + "/v2/publicKey/" + emailAddress
-
-	req, err := http.NewRequest(http.MethodPut, url, bytes.NewReader(pubKeyBytes))
+	resp, err := client.MapVUFSetValue(context.Background(), &pb.MapVUFSetKeyRequest{
+		Key:   []byte(emailAddress),
+		Token: token,
+		Value: pubKeyBytes,
+	})
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", token)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case 200:
-		// continue
-	case 204:
-		return errors.New("Key already set to this value - no mutation generated")
-	default:
-		return errors.New(fmt.Sprintf("Unexpected server response: %d", resp.StatusCode))
+	lh := resp.GetMapResponse().GetLeafHash()
+	if len(lh) == 0 {
+		fmt.Printf("Matches current value, no mutation generated.\n")
+		return nil
 	}
 
-	contents, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	var aer AddEntryResult
-	err = json.Unmarshal(contents, &aer)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Success. Leaf hash of mutation: %s\n", base64.StdEncoding.EncodeToString(aer.MutationEntryLeafHash))
+	fmt.Printf("Success. Leaf hash of mutation: %s\n", base64.StdEncoding.EncodeToString(lh))
 
 	k1 := sha256.Sum256([]byte(emailAddress))
 
@@ -126,7 +106,7 @@ func setKey(db *bolt.DB, c *cli.Context) error {
 	vh := sha256.Sum256(pubKeyBytes)
 	err = gob.NewEncoder(buffer).Encode(&UpdateResult{
 		Email:            emailAddress,
-		MutationLeafHash: aer.MutationEntryLeafHash,
+		MutationLeafHash: lh,
 		ValueHash:        vh[:],
 		LeafIndex:        -1,
 		UserSequence:     -1,

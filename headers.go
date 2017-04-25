@@ -16,21 +16,10 @@
 
 package keytransparency
 
-import (
-	"crypto/ecdsa"
-	"crypto/rsa"
+import "golang.org/x/net/context"
 
-	"github.com/continusec/verifiabledatastructures"
-)
-
-// LocalService uses the specified verifiable map and mailer to managed a key transparency server
-type LocalService struct {
-	Mailer EmailSender
-	Keys   *verifiabledatastructures.VerifiableMap
-
-	MailTokenKey    *ecdsa.PrivateKey
-	VUFKey          *rsa.PrivateKey
-	ServerPublicKey *ecdsa.PublicKey
-
-	BaseURL string
+// EmailSender is an object that can send an email
+type EmailSender interface {
+	// SendMessage sends the message
+	SendMessage(ctx context.Context, recipient, message string) error
 }

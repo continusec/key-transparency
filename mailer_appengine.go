@@ -17,20 +17,22 @@
 package keytransparency
 
 import (
-	"crypto/ecdsa"
-	"crypto/rsa"
-
-	"github.com/continusec/verifiabledatastructures"
+	"golang.org/x/net/context"
+	"google.golang.org/appengine/mail"
 )
 
-// LocalService uses the specified verifiable map and mailer to managed a key transparency server
-type LocalService struct {
-	Mailer EmailSender
-	Keys   *verifiabledatastructures.VerifiableMap
+// AppEngineMailer sends mail using the built-in GAE API
+type AppEngineMailer struct {
+	Subject string
+	From    string
+}
 
-	MailTokenKey    *ecdsa.PrivateKey
-	VUFKey          *rsa.PrivateKey
-	ServerPublicKey *ecdsa.PublicKey
-
-	BaseURL string
+// SendMessage sends the message
+func (s *AppEngineMailer) SendMessage(ctx context.Context, recipient, message string) error {
+	return mail.Send(ctx, &mail.Message{
+		Sender:  s.From,
+		To:      []string{recipient},
+		Subject: s.Subject,
+		Body:    message,
+	})
 }

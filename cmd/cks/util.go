@@ -29,12 +29,34 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/boltdb/bolt"
+	keytransparency "github.com/continusec/key-transparency"
+	"github.com/continusec/key-transparency/pb"
 	"github.com/continusec/verifiabledatastructures"
 	"github.com/urfave/cli"
 )
+
+func getKTClient(server string) (pb.KeyTransparencyServiceServer, error) {
+	var err error
+	if server == "" {
+		server, err = getServer()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	db, err := getDB()
+	if err != nil {
+		return nil, err
+	}
+	return &keytransparency.HTTPClient{
+		BaseURL: server,
+		Client:  &http.Client{Transport: &cachingVerifyingRT{DB: db}},
+	}, nil
+}
 
 // Return true if user types "yes"
 func confirmIt(prompt string) bool {
@@ -61,7 +83,7 @@ func confirmIt(prompt string) bool {
 // correctly
 func stdCmd(f func(db *bolt.DB, c *cli.Context) error) func(c *cli.Context) error {
 	return func(c *cli.Context) error {
-		db, err := GetDB()
+		db, err := getDB()
 		if err != nil {
 			return cli.NewExitError("Error: "+err.Error(), 1)
 		}
@@ -112,7 +134,7 @@ func makePretty(data []byte) string {
 func verifySignedData(data, sig, pub []byte) error {
 	hashed := sha256.Sum256(data)
 
-	var s ECDSASignature
+	var s keytransparency.ECDSASignature
 	_, err := asn1.Unmarshal(sig, &s)
 	if err != nil {
 		return err
@@ -125,11 +147,11 @@ func verifySignedData(data, sig, pub []byte) error {
 
 	ppkey, ok := pkey.(*ecdsa.PublicKey)
 	if !ok {
-		return errors.New("Public key format for the server appears incorrect. Should be ecdsa.PublicKey but unable to cast as such.")
+		return errors.New("public key format for the server appears incorrect. Should be ecdsa.PublicKey but unable to cast as such")
 	}
 
 	if !ecdsa.Verify(ppkey, hashed[:], s.R, s.S) {
-		return errors.New("Verification of signed data failed.")
+		return errors.New("verification of signed data failed")
 	}
 
 	return nil
@@ -137,7 +159,7 @@ func verifySignedData(data, sig, pub []byte) error {
 
 // Is this VUF result valid for this email address?
 func validateVufResult(email string, vufResult []byte) error {
-	db, err := GetDB()
+	db, err := getDB()
 	if err != nil {
 		return err
 	}
@@ -159,7 +181,7 @@ func validateVufResult(email string, vufResult []byte) error {
 
 	ppkey, ok := pkey.(*rsa.PublicKey)
 	if !ok {
-		return errors.New("Public key format for the VUF appears incorrect. Should be rsa.PublicKey but unable to cast as such.")
+		return errors.New("public key format for the VUF appears incorrect. Should be rsa.PublicKey but unable to cast as such")
 	}
 
 	hashed := sha256.Sum256([]byte(email))
@@ -168,7 +190,7 @@ func validateVufResult(email string, vufResult []byte) error {
 
 // Set current head value. key is usually "head"
 func setCurrentHead(key string, newMapState *verifiabledatastructures.MapTreeState) error {
-	db, err := GetDB()
+	db, err := getDB()
 	if err != nil {
 		return err
 	}
@@ -193,7 +215,7 @@ func getCurrentHead(key string) (*verifiabledatastructures.MapTreeState, error) 
 	var mapState verifiabledatastructures.MapTreeState
 	var empty bool
 
-	db, err := GetDB()
+	db, err := getDB()
 	if err != nil {
 		return nil, err
 	}

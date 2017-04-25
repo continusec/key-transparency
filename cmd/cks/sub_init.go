@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"path/filepath"
 
 	"github.com/boltdb/bolt"
+	"github.com/continusec/key-transparency/pb"
 	"github.com/urfave/cli"
 )
 
@@ -82,30 +84,29 @@ func initNewServer(c *cli.Context) error {
 			return cli.NewExitError("Error initializing database: "+err.Error(), 1)
 		}
 
-		// First, get public key
-		pubKey, err := doGet(server + "/v2/config/serverPublicKey")
+		client, err := getKTClient(server)
 		if err != nil {
-			return cli.NewExitError("Error initializing database with public key: "+err.Error(), 1)
+			return cli.NewExitError("Error getting client: "+err.Error(), 1)
+		}
+
+		// First, get public key and VUF key
+		resp, err := client.MapVUFFetchMetadata(context.Background(), &pb.MapVUFFetchMetadataRequest{})
+		if err != nil {
+			return cli.NewExitError("Error getting metadata: "+err.Error(), 1)
 		}
 
 		err = ourDB.Update(func(tx *bolt.Tx) error {
-			return tx.Bucket([]byte("conf")).Put([]byte("serverKey"), pubKey)
+			return tx.Bucket([]byte("conf")).Put([]byte("serverKey"), resp.ServerPublicKey)
 		})
 		if err != nil {
 			return cli.NewExitError("Error initializing database with public key: "+err.Error(), 1)
 		}
 
-		// Next, get VUF
-		vufKey, err := doGet(server + "/v2/config/vufPublicKey")
-		if err != nil {
-			return cli.NewExitError("Error initializing database with VUF key: "+err.Error(), 1)
-		}
-
 		err = ourDB.Update(func(tx *bolt.Tx) error {
-			return tx.Bucket([]byte("conf")).Put([]byte("vufKey"), vufKey)
+			return tx.Bucket([]byte("conf")).Put([]byte("vufKey"), resp.VufPublicKey)
 		})
 		if err != nil {
-			return cli.NewExitError("Error initializing database with VUF key: "+err.Error(), 1)
+			return cli.NewExitError("Error initializing database with public key: "+err.Error(), 1)
 		}
 
 		vmap, err := getMap()
@@ -113,7 +114,7 @@ func initNewServer(c *cli.Context) error {
 			return cli.NewExitError("Error initializing database: "+err.Error(), 1)
 		}
 
-		initialMapState, err := vmap.VerifiedLatestMapState(nil)
+		initialMapState, err := vmap.VerifiedLatestMapState(context.Background(), nil)
 		if err != nil {
 			return cli.NewExitError("Error initializing database with initial map state: "+err.Error(), 1)
 		}
@@ -153,12 +154,12 @@ func initNewServer(c *cli.Context) error {
 var ourDB *bolt.DB
 
 // Get the current database, returning error if unavailable, caching if there
-func GetDB() (*bolt.DB, error) {
+func getDB() (*bolt.DB, error) {
 	if ourDB == nil {
 		var err error
 		ourDB, err = openDB(true, false)
 		if err != nil {
-			return nil, errors.New("Error opening database. If this is your first time running the tool, run `cks init` to initialize the local database.")
+			return nil, errors.New("error opening database. If this is your first time running the tool, run `cks init` to initialize the local database")
 		}
 	}
 	return ourDB, nil

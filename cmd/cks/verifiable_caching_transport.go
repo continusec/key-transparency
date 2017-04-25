@@ -37,12 +37,12 @@ import (
 // Given a database with a cache bucket, use this to implement a RoundTripper that
 // 1. caches nearly all GETs
 // 2. verifies successful responses
-type CachingVerifyingRT struct {
+type cachingVerifyingRT struct {
 	DB *bolt.DB
 }
 
 // Value in cache is gob of this
-type CacheEntry struct {
+type cacheEntry struct {
 	// When we cached it
 	Timestamp time.Time
 
@@ -57,9 +57,9 @@ type CacheEntry struct {
 }
 
 // Fetch from the cache
-func (self *CachingVerifyingRT) getValFromCache(key string) (*CacheEntry, error) {
-	var entry CacheEntry
-	err := self.DB.View(func(tx *bolt.Tx) error {
+func (cv *cachingVerifyingRT) getValFromCache(key string) (*cacheEntry, error) {
+	var entry cacheEntry
+	err := cv.DB.View(func(tx *bolt.Tx) error {
 		return gob.NewDecoder(bytes.NewBuffer(tx.Bucket([]byte("cache")).Get([]byte(key)))).Decode(&entry)
 	})
 	if err != nil {
@@ -69,8 +69,8 @@ func (self *CachingVerifyingRT) getValFromCache(key string) (*CacheEntry, error)
 }
 
 // Fetch but faked out as a real response object
-func (self *CachingVerifyingRT) getRespFromCache(key string) *http.Response {
-	entry, err := self.getValFromCache(key)
+func (cv *cachingVerifyingRT) getRespFromCache(key string) *http.Response {
+	entry, err := cv.getValFromCache(key)
 	if err == nil {
 		return &http.Response{
 			StatusCode: 200,
@@ -82,7 +82,7 @@ func (self *CachingVerifyingRT) getRespFromCache(key string) *http.Response {
 
 // Only does GETs. Special cases certain GETS, like /tree/0 which it won't cache.
 // See code for detailed special cases
-func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, error) {
+func (cv *cachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Method != http.MethodGet {
 		return nil, errors.New("Unexpected request - non-GET from cache")
 	}
@@ -98,7 +98,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 	case strings.HasSuffix(key, "/v2/account/0/map/keys/tree/0"):
 		// no cache
 	default: // cache!
-		r2 := self.getRespFromCache(key)
+		r2 := cv.getRespFromCache(key)
 		if r2 != nil {
 			return r2, nil
 		}
@@ -113,7 +113,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 	}
 
 	if resp.StatusCode != 200 {
-		return nil, errors.New(fmt.Sprintf("Received non-200 response from server: %d", resp.StatusCode))
+		return nil, fmt.Errorf("received non-200 response from server: %d", resp.StatusCode)
 	}
 
 	// Now attempt to cache
@@ -136,7 +136,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 	if strings.HasSuffix(key, "/v2/config/serverPublicKey") {
 		pubKey = contents
 	} else {
-		pubKey, err = getPubKey(self.DB)
+		pubKey, err = getPubKey(cv.DB)
 		if err != nil {
 			return nil, err
 		}
@@ -189,14 +189,14 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 	// already had a value for the tree head, return that rather than whatever new we
 	// received, because it should not have changed, and changing it might make a
 	// verification error write over the evidence.
-	r1 := self.getRespFromCache(key)
+	r1 := cv.getRespFromCache(key)
 	if r1 != nil {
 		return r1, nil
 	}
 
 	// Finally, store in the cache
 	buf := &bytes.Buffer{}
-	err = gob.NewEncoder(buf).Encode(&CacheEntry{
+	err = gob.NewEncoder(buf).Encode(&cacheEntry{
 		Timestamp: time.Now(),
 		Signature: sig,
 		Data:      contents,
@@ -205,7 +205,7 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 		return nil, err
 	}
 
-	err = self.DB.Update(func(tx *bolt.Tx) error {
+	err = cv.DB.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket([]byte("cache")).Put([]byte(key), buf.Bytes())
 	})
 	if err != nil {
@@ -216,29 +216,4 @@ func (self *CachingVerifyingRT) RoundTrip(r *http.Request) (*http.Response, erro
 		StatusCode: 200,
 		Body:       ioutil.NopCloser(bytes.NewReader(contents)),
 	}, nil
-}
-
-// Get the database, make the request, and deal with it.
-func doGet(url string) ([]byte, error) {
-	db, err := GetDB()
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := (&http.Client{Transport: &CachingVerifyingRT{DB: db}}).Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, errors.New(fmt.Sprintf("Unexpected non-200 result from server: %d", resp.StatusCode))
-	}
-
-	contents, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return contents, nil
 }

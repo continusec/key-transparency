@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/gob"
@@ -106,6 +107,7 @@ func checkUpdateListForNewness(db *bolt.DB, ms *verifiabledatastructures.MapTree
 	if err != nil {
 		return err
 	}
+	ctx := context.Background()
 	for _, r := range results {
 		k := r[0]
 		v := r[1]
@@ -121,7 +123,7 @@ func checkUpdateListForNewness(db *bolt.DB, ms *verifiabledatastructures.MapTree
 			if err != nil {
 				return err
 			}
-			proof, err := vmap.MutationLog().InclusionProof(ms.TreeSize(), ur.MutationLeafHash)
+			proof, err := vmap.MutationLog().InclusionProof(context.Background(), ms.TreeSize(), ur.MutationLeafHash)
 			if err != nil { // don't return err as it may not have been sequenced yet, but we will ignore that value
 				continue
 			}
@@ -134,13 +136,13 @@ func checkUpdateListForNewness(db *bolt.DB, ms *verifiabledatastructures.MapTree
 			ur.LeafIndex = proof.LeafIndex
 
 			// Next, check if the value took effect - remember to add 1 to the leaf index, e.g. mutation 6 is tree size 7
-			mapStateForMut, err := vmap.VerifiedMapState(ms, proof.LeafIndex+1)
+			mapStateForMut, err := vmap.VerifiedMapState(context.Background(), ms, proof.LeafIndex+1)
 			if err != nil {
 				return err
 			}
 
 			// See what we can get in that map state
-			pkd, err := getVerifiedValueForMapState(ur.Email, mapStateForMut)
+			pkd, err := getVerifiedValueForMapState(ctx, ur.Email, mapStateForMut)
 			if err != nil {
 				return err
 			}
@@ -151,7 +153,7 @@ func checkUpdateListForNewness(db *bolt.DB, ms *verifiabledatastructures.MapTree
 			}
 
 			// Now, see if we wrote the value we wanted
-			vh := sha256.Sum256(pkd.PGPPublicKey)
+			vh := sha256.Sum256(pkd.Value)
 			if bytes.Equal(vh[:], ur.ValueHash) {
 				ur.UserSequence = pkd.Sequence
 			} else {

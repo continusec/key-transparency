@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"strconv"
 
 	"github.com/boltdb/bolt"
@@ -50,7 +51,7 @@ func updateTree(db *bolt.DB, c *cli.Context) error {
 		return err
 	}
 
-	newMapState, err := vmap.VerifiedMapState(mapState, int64(seq))
+	newMapState, err := vmap.VerifiedMapState(context.Background(), mapState, int64(seq))
 	if err != nil {
 		return err
 	}

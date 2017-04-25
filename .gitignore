@@ -1,1 +1,2 @@
 cmd/cksserver/config.toml
+gae/app.yaml
