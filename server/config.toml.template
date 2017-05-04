@@ -17,6 +17,7 @@ disable_authentication = true
 hosted_in_app_engine = false
 
 [continusec]
+api_base_url = "https://api.continusec.com"
 account = "your account number as configured at https://console.continusec.com/"
 map = "map name as created in the Continusec Console"
 mutating_key = "API key that has Set / delete map values as configured in the Continusec Console"

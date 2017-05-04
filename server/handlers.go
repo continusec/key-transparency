@@ -320,7 +320,7 @@ func getKeyHandler(ts int64, w http.ResponseWriter, r *http.Request) {
 // Proxy read-only requests to the underlying map/log structures.
 // This uses the LimitedReadOnlyKey which should be configured to allow minimal access.
 func handleWrappedOperation(w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequest("GET", "https://api.continusec.com/v1/account/"+config.Continusec.Account+"/map/"+config.Continusec.Map+"/"+r.URL.Path[len(WrappedOp):], nil)
+	req, err := http.NewRequest("GET", config.Continusec.APIBaseURL+"/v1/account/"+config.Continusec.Account+"/map/"+config.Continusec.Map+"/"+r.URL.Path[len(WrappedOp):], nil)
 	if err != nil {
 		handleError(err, r, w)
 		return

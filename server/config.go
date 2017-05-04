@@ -54,6 +54,9 @@ type serverConf struct {
 }
 
 type continusecConf struct {
+	// Base URL for API server, normally left as "https://api.continusec.com"
+	APIBaseURL string `toml:"api_base_url"`
+
 	// The Continusec account to use - usually a number. Create a new Continusec
 	// account at: https://www.continusec.com/
 	Account string
