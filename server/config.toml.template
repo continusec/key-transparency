@@ -35,11 +35,11 @@ The following token has been generated and is valid for 1 hour:
 
 Example usage (to export your GPG public key):
 
-gpg --export {{ .Email }} | curl -H "Authorization: {{ .Token }}" -i -X PUT {{ .BasePath }}/v1/publicKey/{{ .Email }} -d @-
+gpg --armor --export {{ .Email }} | curl -H "Authorization: {{ .Token }}" -i -X PUT {{ .BasePath }}/v1/publicKey/{{ .Email }} -d @-
 
 Or, using the cks tool:
 
-gpg --export {{ .Email }} | cks upload {{ .Email }} - {{ .Token }}
+gpg --armor --export {{ .Email }} | cks upload {{ .Email }} - {{ .Token }}
 
 If you didn't make this request, then please ignore this message.
 """
