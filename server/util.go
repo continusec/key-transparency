@@ -142,7 +142,7 @@ func getMapObject(ctx context.Context) *continusec.VerifiableMap {
 		Account: config.Continusec.Account,
 		Client: continusec.DefaultClient.
 			WithHttpClient(getHttpClient(ctx)).
-			WithBaseUrl(config.Continusec.APIBaseURL).
+			WithBaseUrl(config.Continusec.APIBaseURL + "/v1").
 			WithApiKey(config.Continusec.MutatingKey),
 	}).VerifiableMap(config.Continusec.Map)
 }
