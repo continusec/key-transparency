@@ -17,7 +17,6 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -65,7 +64,7 @@ func init() {
 // e.g.
 // cd server/src
 // GOPATH=$PWD/../vendor:$PWD go run *.go
-func main() {
-	fmt.Println("Serving...")
-	http.ListenAndServe(":8080", nil)
-}
+//func main() {
+//	fmt.Println("Serving...")
+//	http.ListenAndServe(":8080", nil)
+//}
