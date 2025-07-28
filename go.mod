@@ -9,7 +9,7 @@ require (
 	github.com/continusec/objecthash v0.0.0-20250728010430-211b145fc905
 	github.com/continusec/verifiabledatastructures v0.0.0-20250728001347-b313577a08fe
 	github.com/gorilla/mux v1.8.1
-	github.com/olekukonko/tablewriter v1.0.8
+	github.com/olekukonko/tablewriter v1.0.9
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli v1.22.17
 	golang.org/x/crypto v0.40.0
