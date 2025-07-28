@@ -32,7 +32,7 @@ func showConf(db *bolt.DB, c *cli.Context) error {
 	}
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Key", "Value (base-64)"})
+	table.Header("Key", "Value (base-64)")
 
 	err := db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket([]byte("conf")).ForEach(func(k, v []byte) error {

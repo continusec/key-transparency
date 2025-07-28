@@ -248,7 +248,7 @@ func nonce() (string, error) {
 	return hex.EncodeToString(n), nil
 }
 
-func redactableIt(p interface{}) (interface{}, error) {
+func RedactableIt(p interface{}) (interface{}, error) {
 	n, err := nonce()
 	if err != nil {
 		return nil, err
@@ -275,7 +275,7 @@ func redactableDict(p map[string]interface{}) (interface{}, error) {
 		if err != nil {
 			return nil, err
 		}
-		rv[k], err = redactableIt(c)
+		rv[k], err = RedactableIt(c)
 		if err != nil {
 			return nil, err
 		}
@@ -346,6 +346,18 @@ func unredactableDict(p map[string]interface{}, redPref string) (interface{}, er
 		}
 	}
 	return rv, nil
+}
+
+func RedactWithStdRedaction(i interface{}) (string, error) {
+	return RedactWithRedaction(i, REDACTED_PREFIX)
+}
+
+func RedactWithRedaction(i interface{}, redPref string) (string, error) {
+	redacted, err := ObjectHashWithRedaction(i, redPref)
+	if err != nil {
+		return "", err
+	}
+	return redPref + hex.EncodeToString(redacted), nil
 }
 
 type Filterer map[string]Filterer

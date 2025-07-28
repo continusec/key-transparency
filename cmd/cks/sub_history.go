@@ -45,7 +45,7 @@ func historyForUser(db *bolt.DB, c *cli.Context) error {
 		}
 
 		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Email", "Value Hash", "User Sequence", "Map Size Retrieved At"})
+		table.Header("Email", "Value Hash", "User Sequence", "Map Size Retrieved At")
 
 		// Zero size tree
 		if mapState != nil {

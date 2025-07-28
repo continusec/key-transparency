@@ -42,7 +42,7 @@ func listUsers(db *bolt.DB, c *cli.Context) error {
 	}
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Email", "Value Hash", "User Sequence", "Last Updated"})
+	table.Header("Email", "Value Hash", "User Sequence", "Last Updated")
 	for _, fur := range users {
 		seq := "No key found"
 		valS := "(none)"

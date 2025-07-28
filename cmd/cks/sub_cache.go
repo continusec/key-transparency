@@ -58,7 +58,7 @@ func showCache(db *bolt.DB, c *cli.Context) error {
 		sort.Sort(ByTimestamp(entries))
 
 		table := tablewriter.NewWriter(os.Stdout)
-		table.SetHeader([]string{"Timestamp", "URL"})
+		table.Header("Timestamp", "URL")
 		for _, entry := range entries {
 			table.Append([]string{
 				entry.Timestamp.String()[:19],

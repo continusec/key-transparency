@@ -53,7 +53,7 @@ func getServer() (string, error) {
 	return server, nil
 }
 
-// Return verifiable map with our special wrapping, verifiying, caching client for the configured
+// Return verifiable map with our special wrapping, verifying, caching client for the configured
 // server.
 func getMap() (*continusec.VerifiableMap, error) {
 	db, err := GetDB()

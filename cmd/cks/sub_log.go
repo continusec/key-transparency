@@ -50,7 +50,7 @@ func listUpdates(db *bolt.DB, c *cli.Context) error {
 	}
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Email", "Value Hash", "Timestamp", "Mutation Log Entry", "Map Sequence", "User Sequence"})
+	table.Header("Email", "Value Hash", "Timestamp", "Mutation Log Entry", "Map Sequence", "User Sequence")
 
 	for _, r := range results {
 		v := r[1]
