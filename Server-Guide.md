@@ -36,8 +36,8 @@ Once you have a Continusec account:
 	- no log permissions
 	- The following map permissions:
 	   - Get value / inclusion proof for map keys
-      - Read map mutation log entries
-      - Read map mutation log tree hashes, and map tree head log
+       - Read map mutation log entries
+       - Read map mutation log tree hashes, and map tree head log
    - no account permissions
    - `Logs / maps permitted` set to name of the map created earlier
    - `Redacted Fields Allowed` set to `sequence,action,key,value,previous,timestamp,mutation_log/*,map_hash`
